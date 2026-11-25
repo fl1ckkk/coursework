@@ -54,7 +54,7 @@
       {{ user }} ({{ user.get_role_display }})
       <form class="inline" method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">Вийти</button></form>
     {% else %}
-      <a href="{% url 'login' %}">Увійти</a>
+      <a href="{% url 'login' %}">Увійти</a> · <a href="{% url 'register' %}">Зареєструватися</a>
     {% endif %}
   </nav>
 </header>

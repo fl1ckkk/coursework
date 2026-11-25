@@ -4,7 +4,16 @@
 <h1>Вхід</h1>
 <form method="post">
   {% csrf_token %}
-  {{ form.as_p }}
-  <button type="submit">Увійти</button>
+  {{ form.non_field_errors }}
+  {% for field in form %}
+    <div class="form-row">
+      {{ field.label_tag }}
+      {{ field }}
+      {{ field.errors }}
+    </div>
+  {% endfor %}
+  <input type="hidden" name="next" value="{{ next }}">
+  <button type="submit" class="primary">Увійти</button>
 </form>
+<p>Немає облікового запису? <a href="{% url 'register' %}">Зареєструватися</a></p>
 {% endblock %}

@@ -25,7 +25,7 @@
 | Модуль | За що відповідає | Ключові файли |
 |---|---|---|
 | `config` | Налаштування, підключення до БД, маршрути верхнього рівня | `settings.py`, `urls.py` |
-| `accounts` | Модель користувача з роллю (клієнт / менеджер) | `models.py`, `admin.py` |
+| `accounts` | Модель користувача з роллю (клієнт / менеджер), реєстрація клієнта | `models.py`, `forms.py`, `views.py`, `admin.py`, `tests.py` |
 | `catalog` | Типи обладнання, екземпляри, тарифи; сторінки каталогу; демо-дані | `models.py`, `views.py`, `management/commands/seed_demo.py` |
 | `bookings` | Бронювання, журнал подій, усі правила зміни бронювань; сторінки заявок | `models.py`, `services.py`, `forms.py`, `views.py`, `manager_views.py`, `tests.py` |
 | `templates` | HTML-шаблони сторінок | `base.html`, `catalog/*.html`, `bookings/*.html` |
