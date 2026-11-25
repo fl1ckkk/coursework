@@ -1,8 +1,10 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.contrib.postgres.constraints import ExclusionConstraint
 from django.contrib.postgres.fields import DateRangeField, RangeOperators
 from django.db import models
-from django.db.models import Func, Q
+from django.db.models import ExpressionWrapper, F, Func, Q
 
 from catalog.models import EquipmentUnit
 
@@ -50,6 +52,10 @@ class Booking(models.Model):
     # Ціну фіксуємо в момент створення, щоб зміна тарифу не змінила вже оформлену заявку.
     price_per_day = models.DecimalField("ціна за добу на момент бронювання", max_digits=10, decimal_places=2)
     total_price = models.DecimalField("вартість, грн", max_digits=12, decimal_places=2)
+    # Технічна перерва після оренди, скопійована з типу обладнання в момент бронювання.
+    # Екземпляр зайнятий до end_date + buffer_days. Знімок потрібен, щоб зміна
+    # налаштування типу не зробила недійсними вже створені бронювання.
+    buffer_days = models.PositiveSmallIntegerField("технічна перерва, днів", default=0, db_default=0)
     created_at = models.DateTimeField("створено", auto_now_add=True)
     updated_at = models.DateTimeField("змінено", auto_now=True)
 
@@ -68,12 +74,19 @@ class Booking(models.Model):
             # Головне бізнес-правило: активні бронювання одного екземпляра
             # не можуть перетинатися в часі. Перевіряє сама СКБД, тому правило
             # діє навіть для двох одночасних запитів.
+            # Період зайнятості — від дати видачі до дати повернення плюс технічна перерва.
             ExclusionConstraint(
                 name="booking_no_overlap_per_unit",
                 expressions=[
                     ("unit", RangeOperators.EQUAL),
                     (
-                        DateRange("start_date", "end_date", models.Value("[)")),
+                        DateRange(
+                            "start_date",
+                            ExpressionWrapper(
+                                F("end_date") + F("buffer_days"), output_field=models.DateField()
+                            ),
+                            models.Value("[)"),
+                        ),
                         RangeOperators.OVERLAPS,
                     ),
                 ],
@@ -89,6 +102,11 @@ class Booking(models.Model):
     @property
     def days(self) -> int:
         return (self.end_date - self.start_date).days
+
+    @property
+    def busy_until(self):
+        """Перший день, коли екземпляр знову вільний (повернення + технічна перерва)."""
+        return self.end_date + timedelta(days=self.buffer_days)
 
     def __str__(self) -> str:
         return f"#{self.pk} {self.unit} {self.start_date}–{self.end_date} ({self.get_status_display()})"

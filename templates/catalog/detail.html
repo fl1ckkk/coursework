@@ -8,14 +8,23 @@
 {% if tariff %}
   <p class="price">{{ tariff.price_per_day }} грн / доба</p>
 {% endif %}
+{% if item.turnaround_days %}
+  <p class="muted">Після кожної оренди екземпляр {{ item.turnaround_days }} дн. на технічному обслуговуванні,
+  тому наступна оренда може початися не раніше ніж через {{ item.turnaround_days }} дн. після повернення.</p>
+{% endif %}
 
 <h2>Екземпляри</h2>
 {% for unit in units %}
   <div class="card">
     <strong>Інв. № {{ unit.inventory_number }}</strong>
     {% if unit.busy_periods %}
-      <div>Зайнято (дата повернення не входить у період):</div>
-      <ul>{% for b in unit.busy_periods %}<li>{{ b.start_date|date:"d.m.Y" }} — {{ b.end_date|date:"d.m.Y" }}</li>{% endfor %}</ul>
+      <div>Зайнято:</div>
+      <ul>
+        {% for b in unit.busy_periods %}
+          <li>{{ b.start_date|date:"d.m.Y" }} — {{ b.end_date|date:"d.m.Y" }}
+            <span class="muted">(вільний з {{ b.busy_until|date:"d.m.Y" }})</span></li>
+        {% endfor %}
+      </ul>
     {% else %}
       <div class="muted">Вільний на всі дати.</div>
     {% endif %}

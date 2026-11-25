@@ -38,7 +38,8 @@
 - Скасовані, відхилені й повернені бронювання не блокують екземпляр завдяки `WHERE`.
 
 > Опис нижче відповідає стану на момент цієї міграції. Статуси `pending`
-> і `rejected` прибрано міграцією [0004](bookings_0004_auto_confirm_bookings.md).
+> і `rejected` прибрано міграцією [0004](bookings_0004_auto_confirm_bookings.md),
+> а технічну перерву після оренди додано міграцією [0005](bookings_0005_booking_buffer_days.md).
 
 У моделі для виклику SQL-функції `daterange` використано клас
 `DateRange(Func)` з `bookings/models.py`.

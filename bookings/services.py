@@ -8,7 +8,7 @@
 from datetime import date
 from decimal import Decimal
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, transaction
 
 from catalog.models import EquipmentUnit, Tariff
 
@@ -21,6 +21,15 @@ class BookingError(Exception):
 
 class BookingConflict(BookingError):
     """Екземпляр уже зайнятий на частину періоду."""
+
+
+# SQLSTATE помилки PostgreSQL «deadlock detected».
+DEADLOCK_DETECTED = "40P01"
+CREATE_ATTEMPTS = 3
+
+
+def is_deadlock(exc: OperationalError) -> bool:
+    return getattr(exc.__cause__, "sqlstate", None) == DEADLOCK_DETECTED
 
 
 # Допустимі переходи статусів: зі стану -> {новий стан: хто може}.
@@ -84,6 +93,12 @@ def create_booking(*, client, unit: EquipmentUnit, start: date, end: date) -> Bo
     у PostgreSQL. Попередня перевірка в Python потрібна лише для зрозумілого
     повідомлення; на неї не покладаємось, бо між перевіркою й записом
     інший запит може встигнути зайняти екземпляр.
+
+    Взаємне блокування. Коли дві транзакції одночасно вставляють бронювання
+    на той самий період, кожна бачить незавершений запис іншої й чекає на неї.
+    PostgreSQL виявляє це (deadlock) і перериває одну з них. Перервану спробу
+    повторюємо: друга спроба вже бачить завершене бронювання й отримує
+    звичайний BookingConflict замість помилки сервера.
     """
     validate_period(start, end)
     if unit.status != EquipmentUnit.Status.AVAILABLE:
@@ -91,27 +106,39 @@ def create_booking(*, client, unit: EquipmentUnit, start: date, end: date) -> Bo
 
     tariff = tariff_for(unit, start)
     total = calculate_price(tariff.price_per_day, start, end)
+    buffer_days = unit.equipment_type.turnaround_days
 
-    try:
-        with transaction.atomic():
-            booking = Booking.objects.create(
-                unit=unit,
-                client=client,
-                start_date=start,
-                end_date=end,
-                status=Booking.Status.CONFIRMED,
-                price_per_day=tariff.price_per_day,
-                total_price=total,
-            )
-            BookingEvent.objects.create(
-                booking=booking, kind=BookingEvent.Kind.CREATED, actor=client
-            )
-    except IntegrityError as exc:
-        if "booking_no_overlap_per_unit" in str(exc):
-            raise BookingConflict(
-                "Цей екземпляр уже заброньовано на частину вибраного періоду."
-            ) from exc
-        raise
+    for attempt in range(1, CREATE_ATTEMPTS + 1):
+        try:
+            return _insert_booking(client, unit, start, end, tariff.price_per_day, total, buffer_days)
+        except OperationalError as exc:
+            if not is_deadlock(exc) or attempt == CREATE_ATTEMPTS:
+                raise
+        except IntegrityError as exc:
+            if "booking_no_overlap_per_unit" in str(exc):
+                message = "Цей екземпляр уже заброньовано на частину вибраного періоду."
+                if buffer_days:
+                    message += (
+                        f" Враховується технічна перерва: {buffer_days} дн. після кожної оренди."
+                    )
+                raise BookingConflict(message) from exc
+            raise
+
+
+def _insert_booking(client, unit, start, end, price_per_day, total, buffer_days) -> Booking:
+    """Одна спроба: бронювання й подія «створено» в одній транзакції."""
+    with transaction.atomic():
+        booking = Booking.objects.create(
+            unit=unit,
+            client=client,
+            start_date=start,
+            end_date=end,
+            status=Booking.Status.CONFIRMED,
+            price_per_day=price_per_day,
+            total_price=total,
+            buffer_days=buffer_days,
+        )
+        BookingEvent.objects.create(booking=booking, kind=BookingEvent.Kind.CREATED, actor=client)
     return booking
 
 

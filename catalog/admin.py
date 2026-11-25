@@ -15,7 +15,7 @@ class TariffInline(admin.TabularInline):
 
 @admin.register(EquipmentType)
 class EquipmentTypeAdmin(admin.ModelAdmin):
-    list_display = ("name", "category", "is_active")
+    list_display = ("name", "category", "turnaround_days", "is_active")
     list_filter = ("category", "is_active")
     search_fields = ("name", "description")
     inlines = [UnitInline, TariffInline]

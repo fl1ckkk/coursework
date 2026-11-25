@@ -42,7 +42,7 @@ def equipment_detail(request, pk):
             (
                 b
                 for b in unit.bookings.all()
-                if b.status in Booking.ACTIVE_STATUSES and b.end_date > today
+                if b.status in Booking.ACTIVE_STATUSES and b.busy_until > today
             ),
             key=lambda b: b.start_date,
         )

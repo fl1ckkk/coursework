@@ -43,6 +43,10 @@ catalog.0001_initial ──┼─▶ bookings.0001_initial ─▶ bookings.0002_
                                                                                                   │
                                                                                                   ▼
                                                                                   bookings.0004_auto_confirm_bookings
+                                                                                                  │
+catalog.0002_equipmenttype_turnaround_days ───────────────────────────────────────────────────────┤
+                                                                                                  ▼
+                                                                                  bookings.0005_booking_buffer_days
 ```
 
 ## Перелік міграцій
@@ -51,10 +55,12 @@ catalog.0001_initial ──┼─▶ bookings.0001_initial ─▶ bookings.0002_
 |---|---|---|
 | `accounts.0001_initial` | Таблиця користувачів із роллю | [accounts_0001_initial.md](accounts_0001_initial.md) |
 | `catalog.0001_initial` | Типи обладнання, екземпляри, тарифи | [catalog_0001_initial.md](catalog_0001_initial.md) |
+| `catalog.0002_equipmenttype_turnaround_days` | Технічна перерва між орендами для типу обладнання | [catalog_0002_equipmenttype_turnaround_days.md](catalog_0002_equipmenttype_turnaround_days.md) |
 | `bookings.0001_initial` | Бронювання, журнал подій, CHECK-обмеження | [bookings_0001_initial.md](bookings_0001_initial.md) |
 | `bookings.0002_btree_gist_extension` | Розширення PostgreSQL `btree_gist` | [bookings_0002_btree_gist_extension.md](bookings_0002_btree_gist_extension.md) |
 | `bookings.0003_booking_no_overlap` | Заборона перетину бронювань | [bookings_0003_booking_no_overlap.md](bookings_0003_booking_no_overlap.md) |
 | `bookings.0004_auto_confirm_bookings` | Автопідтвердження: прибрано статуси `pending` і `rejected`, перенесено дані, оновлено умову обмеження | [bookings_0004_auto_confirm_bookings.md](bookings_0004_auto_confirm_bookings.md) |
+| `bookings.0005_booking_buffer_days` | Знімок перерви в бронюванні; обмеження перетину з урахуванням перерви | [bookings_0005_booking_buffer_days.md](bookings_0005_booking_buffer_days.md) |
 
 Стандартні міграції Django (`auth`, `admin`, `contenttypes`, `sessions`)
 не описуються окремо: вони не є власною розробкою.

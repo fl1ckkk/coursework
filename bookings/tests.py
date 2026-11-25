@@ -32,8 +32,11 @@ def d(days: int) -> date:
     return TODAY + timedelta(days=days)
 
 
-def make_fixture():
-    etype = EquipmentType.objects.create(name="Камера", category="Фото")
+def make_fixture(turnaround_days=0):
+    # Більшість тестів перевіряє правила без технічної перерви; для перерви — TurnaroundTests.
+    etype = EquipmentType.objects.create(
+        name="Камера", category="Фото", turnaround_days=turnaround_days
+    )
     Tariff.objects.create(equipment_type=etype, price_per_day=Decimal("500.00"), valid_from=d(-10))
     unit1 = EquipmentUnit.objects.create(equipment_type=etype, inventory_number="U-1")
     unit2 = EquipmentUnit.objects.create(equipment_type=etype, inventory_number="U-2")
@@ -70,7 +73,7 @@ class CreateBookingTests(TestCase):
         self.assertEqual(Booking.objects.count(), 1)  # частково записаної заявки немає
 
     def test_adjacent_periods_allowed(self):
-        """[1;3) і [3;5) не перетинаються: день повернення вільний для наступного клієнта."""
+        """Без технічної перерви [1;3) і [3;5) не перетинаються: день повернення вільний."""
         create_booking(client=self.client_user, unit=self.unit1, start=d(1), end=d(3))
         create_booking(client=self.other, unit=self.unit1, start=d(3), end=d(5))
         self.assertEqual(Booking.objects.count(), 2)
@@ -185,31 +188,43 @@ class ConstraintConsistencyTests(TestCase):
 
 
 class ConcurrentBookingTests(TransactionTestCase):
-    """Два одночасні запити на той самий екземпляр: успішним має бути рівно один."""
+    """Одночасні запити на той самий екземпляр і період: успішним має бути рівно один.
+
+    Повторюємо кілька раундів: взаємне блокування (deadlock) у PostgreSQL
+    трапляється не щоразу, і один раунд міг би його не зачепити.
+    """
+
+    ROUNDS = 20
 
     def test_only_one_of_two_parallel_requests_succeeds(self):
         _, unit1, _, client, other, _ = make_fixture()
-        barrier = threading.Barrier(2)
-        results = []
 
-        def attempt(user):
-            try:
-                barrier.wait()
-                create_booking(client=user, unit=unit1, start=d(1), end=d(4))
-                results.append("ok")
-            except BookingConflict:
-                results.append("conflict")
-            finally:
-                connection.close()
+        for round_no in range(self.ROUNDS):
+            start = d(1 + round_no * 5)
+            barrier = threading.Barrier(2)
+            results = []
 
-        threads = [threading.Thread(target=attempt, args=(u,)) for u in (client, other)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+            def attempt(user):
+                try:
+                    barrier.wait()
+                    create_booking(client=user, unit=unit1, start=start, end=start + timedelta(days=3))
+                    results.append("ok")
+                except BookingConflict:
+                    results.append("conflict")
+                except Exception as exc:  # будь-яка інша помилка — це провал тесту, а не тиша
+                    results.append(f"error: {exc!r}")
+                finally:
+                    connection.close()
 
-        self.assertEqual(sorted(results), ["conflict", "ok"])
-        self.assertEqual(Booking.objects.count(), 1)
+            threads = [threading.Thread(target=attempt, args=(u,)) for u in (client, other)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            self.assertEqual(sorted(results), ["conflict", "ok"], f"раунд {round_no + 1}")
+
+        self.assertEqual(Booking.objects.count(), self.ROUNDS)
 
 
 class BookingViewTests(TestCase):
@@ -435,3 +450,61 @@ class ManagerPanelTests(TestCase):
         self.assertEqual(self.action(self.today_booking, "issue").status_code, 403)
         self.today_booking.refresh_from_db()
         self.assertEqual(self.today_booking.status, Booking.Status.CONFIRMED)
+
+
+class TurnaroundTests(TestCase):
+    """Технічна перерва між орендами (поле turnaround_days типу обладнання)."""
+
+    def setUp(self):
+        self.etype, self.unit1, self.unit2, self.client_user, self.other, self.manager = make_fixture(
+            turnaround_days=1
+        )
+        self.first = create_booking(client=self.client_user, unit=self.unit1, start=d(1), end=d(3))
+
+    def test_buffer_copied_into_booking(self):
+        self.assertEqual(self.first.buffer_days, 1)
+        self.assertEqual(self.first.busy_until, d(4))
+
+    def test_next_rental_cannot_start_on_return_day(self):
+        with self.assertRaises(BookingConflict) as ctx:
+            create_booking(client=self.other, unit=self.unit1, start=d(3), end=d(5))
+        self.assertIn("технічна перерва", str(ctx.exception))
+
+    def test_next_rental_allowed_after_buffer(self):
+        create_booking(client=self.other, unit=self.unit1, start=d(4), end=d(6))
+        self.assertEqual(Booking.objects.count(), 2)
+
+    def test_earlier_rental_buffer_blocks_too(self):
+        """Перерва йде після кожної оренди: попередня оренда теж не може закінчитися впритул."""
+        later = create_booking(client=self.other, unit=self.unit1, start=d(10), end=d(12))
+        with self.assertRaises(BookingConflict):
+            create_booking(client=self.other, unit=self.unit1, start=d(8), end=d(10))
+        create_booking(client=self.other, unit=self.unit1, start=d(7), end=d(9))
+        self.assertTrue(Booking.objects.filter(pk=later.pk).exists())
+
+    def test_other_unit_not_affected(self):
+        create_booking(client=self.other, unit=self.unit2, start=d(3), end=d(5))
+
+    def test_cancelled_booking_frees_buffer(self):
+        change_status(self.first, Booking.Status.CANCELLED, actor=self.client_user)
+        create_booking(client=self.other, unit=self.unit1, start=d(3), end=d(5))
+
+    def test_changing_type_setting_keeps_existing_bookings(self):
+        """Знімок: збільшення перерви не робить недійсними вже створені бронювання."""
+        create_booking(client=self.other, unit=self.unit1, start=d(4), end=d(6))
+        self.etype.turnaround_days = 5
+        self.etype.save()
+        self.assertEqual(Booking.objects.filter(status=Booking.Status.CONFIRMED).count(), 2)
+        # Нові бронювання вже з новою перервою.
+        new = create_booking(client=self.other, unit=self.unit2, start=d(1), end=d(2))
+        self.assertEqual(new.buffer_days, 5)
+
+    def test_database_enforces_buffer(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Booking.objects.create(unit=self.unit1, client=self.other, start_date=d(3),
+                                   end_date=d(4), price_per_day=1, total_price=1)
+
+    def test_detail_page_shows_free_from_date(self):
+        response = self.client.get(reverse("catalog:detail", args=[self.etype.pk]))
+        self.assertContains(response, "вільний з " + d(4).strftime("%d.%m.%Y"))
+        self.assertContains(response, "1 дн. на технічному обслуговуванні")

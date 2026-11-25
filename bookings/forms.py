@@ -32,7 +32,7 @@ class BookingForm(forms.Form):
     end_date = forms.DateField(
         label="Дата повернення",
         widget=DateInput(),
-        help_text="День повернення не оплачується і вже вільний для наступного клієнта.",
+        help_text="День повернення не оплачується.",
     )
 
     def __init__(self, *args, equipment_type: EquipmentType, **kwargs):
@@ -42,6 +42,11 @@ class BookingForm(forms.Form):
             status=EquipmentUnit.Status.AVAILABLE
         )
         self.fields["unit"].label_from_instance = lambda unit: f"Інв. № {unit.inventory_number}"
+        if equipment_type.turnaround_days:
+            self.fields["end_date"].help_text += (
+                f" Після повернення екземпляр {equipment_type.turnaround_days} дн. "
+                "на технічному обслуговуванні."
+            )
         # Підказка браузеру не пропонувати минулі дати (сервер однаково перевіряє сам).
         today = date.today().isoformat()
         for name in ("start_date", "end_date"):

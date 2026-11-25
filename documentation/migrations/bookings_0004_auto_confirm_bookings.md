@@ -73,6 +73,8 @@ DELETE FROM bookings_bookingevent WHERE kind = 'confirmed';
 UPDATE bookings_bookingevent SET kind = 'cancelled' WHERE kind = 'rejected';
 ```
 
+> Пізніше умову періоду доповнено технічною перервою: див. [0005](bookings_0005_booking_buffer_days.md).
+
 ## Відкат
 
 ```bash
