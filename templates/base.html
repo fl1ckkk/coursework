@@ -25,6 +25,17 @@
     .messages li.error { background: #fde8ea; }
     .tabs { display: flex; gap: 1rem; margin-bottom: 1rem; }
     .tabs a.current { font-weight: 600; text-decoration: none; color: inherit; }
+    .badge { display: inline-block; padding: 0 .4rem; border-radius: 3px; font-size: .8rem; font-weight: 600; }
+    .badge.today { background: #e3efff; color: #0b5cad; }
+    .badge.warn { background: #fff3cd; color: #7a5a00; }
+    .badge.overdue { background: #fde8ea; color: #b00020; }
+    .count { color: #555; font-weight: normal; }
+    .filters { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; margin-bottom: 1rem; }
+    .filters label { display: flex; flex-direction: column; font-size: .9rem; }
+    .actions form { margin: 0 0 .25rem; }
+    .actions input[type=text] { width: 11rem; }
+    button.secondary { padding: .3rem .7rem; border: 1px solid #0b5cad; border-radius: 4px; background: #0b5cad;
+      color: #fff; font: inherit; cursor: pointer; }
     button.danger { padding: .3rem .7rem; border: 1px solid #b00020; border-radius: 4px; background: #fff;
       color: #b00020; font: inherit; cursor: pointer; }
   </style>
@@ -34,7 +45,12 @@
   <a href="{% url 'catalog:list' %}"><strong>Оренда обладнання</strong></a>
   <nav>
     {% if user.is_authenticated %}
-      {% if not user.is_manager %}<a href="{% url 'bookings:my' %}">Мої бронювання</a> ·{% endif %}
+      {% if user.is_manager %}
+        <a href="{% url 'manage:list' %}">Заявки</a> ·
+        {% if user.is_staff %}<a href="{% url 'admin:index' %}">Каталог (адмінка)</a> ·{% endif %}
+      {% else %}
+        <a href="{% url 'bookings:my' %}">Мої бронювання</a> ·
+      {% endif %}
       {{ user }} ({{ user.get_role_display }})
       <form class="inline" method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">Вийти</button></form>
     {% else %}

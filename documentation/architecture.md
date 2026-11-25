@@ -8,6 +8,7 @@
 Браузер ──HTTP──▶ Django (config/urls.py)
                     ├── catalog/views.py   сторінки каталогу
                     ├── bookings/views.py  оформлення й перегляд заявок
+                    ├── bookings/manager_views.py  панель менеджера
                     └── admin              адміністрування
                           │
                           ▼
@@ -26,7 +27,7 @@
 | `config` | Налаштування, підключення до БД, маршрути верхнього рівня | `settings.py`, `urls.py` |
 | `accounts` | Модель користувача з роллю (клієнт / менеджер) | `models.py`, `admin.py` |
 | `catalog` | Типи обладнання, екземпляри, тарифи; сторінки каталогу; демо-дані | `models.py`, `views.py`, `management/commands/seed_demo.py` |
-| `bookings` | Бронювання, журнал подій, усі правила зміни бронювань; сторінки заявок | `models.py`, `services.py`, `forms.py`, `views.py`, `tests.py` |
+| `bookings` | Бронювання, журнал подій, усі правила зміни бронювань; сторінки заявок | `models.py`, `services.py`, `forms.py`, `views.py`, `manager_views.py`, `tests.py` |
 | `templates` | HTML-шаблони сторінок | `base.html`, `catalog/*.html`, `bookings/*.html` |
 
 ## Де перевіряються правила
@@ -36,7 +37,8 @@
 | Перетин періодів одного екземпляра | PostgreSQL (`booking_no_overlap_per_unit`) | Лише СКБД гарантує правило для одночасних запитів |
 | Дата повернення > дати видачі | PostgreSQL (CHECK) + `services.validate_period` | БД — остання лінія захисту, сервіс — зрозуміле повідомлення |
 | Минула дата, стан екземпляра, наявність тарифу | `services.create_booking` | Залежить від поточної дати й інших таблиць |
-| Хто може змінити статус і на який | `services.change_status` | Залежить від ролі й власника заявки |
+| Хто може змінити статус і на який | `services.check_transition` (використовують і `change_status`, і кнопки) | Залежить від ролі, власника заявки й дати |
+| Одночасні дії над однією заявкою | `SELECT ... FOR UPDATE` у `change_status` | Друга дія бачить уже змінений статус |
 
 Код, що змінює бронювання, має викликати функції з `bookings/services.py`,
 а не змінювати модель напряму: інакше не запишеться журнал і не перевіряться права.

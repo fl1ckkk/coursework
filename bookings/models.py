@@ -23,15 +23,15 @@ class Booking(models.Model):
     """
 
     class Status(models.TextChoices):
-        PENDING = "pending", "Очікує погодження"
-        CONFIRMED = "confirmed", "Погоджено"
+        # Заявка, що пройшла всі перевірки, підтверджується автоматично.
+        # Недійсна заявка не зберігається взагалі (див. services.create_booking).
+        CONFIRMED = "confirmed", "Підтверджено"
         ISSUED = "issued", "Видано"
         RETURNED = "returned", "Повернено"
-        REJECTED = "rejected", "Відхилено"
         CANCELLED = "cancelled", "Скасовано"
 
     # Статуси, у яких бронювання займає екземпляр і блокує інші заявки.
-    ACTIVE_STATUSES = (Status.PENDING, Status.CONFIRMED, Status.ISSUED)
+    ACTIVE_STATUSES = (Status.CONFIRMED, Status.ISSUED)
 
     unit = models.ForeignKey(
         EquipmentUnit, on_delete=models.PROTECT, related_name="bookings", verbose_name="екземпляр"
@@ -45,7 +45,7 @@ class Booking(models.Model):
     start_date = models.DateField("дата видачі")
     end_date = models.DateField("дата повернення")
     status = models.CharField(
-        "статус", max_length=16, choices=Status.choices, default=Status.PENDING
+        "статус", max_length=16, choices=Status.choices, default=Status.CONFIRMED
     )
     # Ціну фіксуємо в момент створення, щоб зміна тарифу не змінила вже оформлену заявку.
     price_per_day = models.DecimalField("ціна за добу на момент бронювання", max_digits=10, decimal_places=2)
@@ -77,7 +77,8 @@ class Booking(models.Model):
                         RangeOperators.OVERLAPS,
                     ),
                 ],
-                condition=Q(status__in=["pending", "confirmed", "issued"]),
+                # Має збігатися з ACTIVE_STATUSES.
+                condition=Q(status__in=["confirmed", "issued"]),
                 violation_error_message="Цей екземпляр уже заброньовано на частину вибраного періоду.",
             ),
         ]
@@ -97,9 +98,7 @@ class BookingEvent(models.Model):
     """Журнал змін бронювання: хто, коли й що зробив."""
 
     class Kind(models.TextChoices):
-        CREATED = "created", "Створено"
-        CONFIRMED = "confirmed", "Погоджено"
-        REJECTED = "rejected", "Відхилено"
+        CREATED = "created", "Створено й підтверджено"
         CANCELLED = "cancelled", "Скасовано"
         ISSUED = "issued", "Видано"
         RETURNED = "returned", "Повернено"

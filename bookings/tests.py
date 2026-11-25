@@ -19,6 +19,7 @@ from .models import Booking, BookingEvent
 from .services import (
     BookingConflict,
     BookingError,
+    allowed_transitions,
     calculate_price,
     change_status,
     create_booking,
@@ -58,7 +59,8 @@ class CreateBookingTests(TestCase):
     def test_booking_created_with_price_snapshot_and_event(self):
         booking = create_booking(client=self.client_user, unit=self.unit1, start=d(1), end=d(3))
         self.assertEqual(booking.total_price, Decimal("1000.00"))
-        self.assertEqual(booking.status, Booking.Status.PENDING)
+        # Ручного погодження немає: коректна заявка одразу підтверджена.
+        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
         self.assertTrue(booking.events.filter(kind=BookingEvent.Kind.CREATED).exists())
 
     def test_overlapping_booking_same_unit_rejected(self):
@@ -82,7 +84,7 @@ class CreateBookingTests(TestCase):
         first = create_booking(client=self.client_user, unit=self.unit1, start=d(1), end=d(5))
         change_status(first, Booking.Status.CANCELLED, actor=self.client_user)
         create_booking(client=self.other, unit=self.unit1, start=d(2), end=d(4))
-        self.assertEqual(Booking.objects.filter(status=Booking.Status.PENDING).count(), 1)
+        self.assertEqual(Booking.objects.filter(status=Booking.Status.CONFIRMED).count(), 1)
 
     def test_past_date_rejected(self):
         with self.assertRaises(BookingError):
@@ -114,27 +116,72 @@ class StatusTransitionTests(TestCase):
         _, self.unit1, _, self.client_user, self.other, self.manager = make_fixture()
         self.booking = create_booking(client=self.client_user, unit=self.unit1, start=d(1), end=d(3))
 
-    def test_client_cannot_confirm(self):
+    def test_client_cannot_issue(self):
         with self.assertRaises(BookingError):
-            change_status(self.booking, Booking.Status.CONFIRMED, actor=self.client_user)
+            change_status(self.booking, Booking.Status.ISSUED, actor=self.client_user, today=d(1))
 
     def test_other_client_cannot_cancel(self):
         with self.assertRaises(BookingError):
             change_status(self.booking, Booking.Status.CANCELLED, actor=self.other)
 
-    def test_reject_requires_reason(self):
+    def test_owner_cancels_without_reason(self):
+        change_status(self.booking, Booking.Status.CANCELLED, actor=self.client_user)
+        self.assertEqual(self.booking.status, Booking.Status.CANCELLED)
+
+    def test_manager_cancel_requires_reason(self):
         with self.assertRaises(BookingError):
-            change_status(self.booking, Booking.Status.REJECTED, actor=self.manager)
+            change_status(self.booking, Booking.Status.CANCELLED, actor=self.manager, comment="  ")
+        change_status(self.booking, Booking.Status.CANCELLED, actor=self.manager, comment="Ремонт")
+        self.assertEqual(self.booking.events.last().comment, "Ремонт")
+
+    def test_cannot_issue_before_start_date(self):
+        with self.assertRaises(BookingError):
+            change_status(self.booking, Booking.Status.ISSUED, actor=self.manager, today=d(0))
+        change_status(self.booking, Booking.Status.ISSUED, actor=self.manager, today=d(1))
 
     def test_full_lifecycle(self):
-        for status in (Booking.Status.CONFIRMED, Booking.Status.ISSUED, Booking.Status.RETURNED):
-            change_status(self.booking, status, actor=self.manager)
-        self.assertEqual(self.booking.events.count(), 4)
+        change_status(self.booking, Booking.Status.ISSUED, actor=self.manager, today=d(1))
+        change_status(self.booking, Booking.Status.RETURNED, actor=self.manager)
+        kinds = list(self.booking.events.values_list("kind", flat=True))
+        self.assertEqual(kinds, ["created", "issued", "returned"])
 
     def test_cannot_skip_issue(self):
-        change_status(self.booking, Booking.Status.CONFIRMED, actor=self.manager)
         with self.assertRaises(BookingError):
             change_status(self.booking, Booking.Status.RETURNED, actor=self.manager)
+
+    def test_cannot_cancel_after_return(self):
+        change_status(self.booking, Booking.Status.ISSUED, actor=self.manager, today=d(1))
+        change_status(self.booking, Booking.Status.RETURNED, actor=self.manager)
+        with self.assertRaises(BookingError):
+            change_status(self.booking, Booking.Status.CANCELLED, actor=self.manager, comment="x")
+
+    def test_stale_object_cannot_repeat_action(self):
+        """Друга дія над застарілою копією (як два менеджери одночасно) відхиляється."""
+        stale = Booking.objects.get(pk=self.booking.pk)
+        change_status(self.booking, Booking.Status.ISSUED, actor=self.manager, today=d(1))
+        with self.assertRaises(BookingError):
+            change_status(stale, Booking.Status.ISSUED, actor=self.manager, today=d(1))
+        self.assertEqual(self.booking.events.filter(kind="issued").count(), 1)
+
+    def test_allowed_transitions(self):
+        self.assertEqual(allowed_transitions(self.booking, self.client_user), {"cancelled"})
+        self.assertEqual(allowed_transitions(self.booking, self.other), set())
+        self.assertEqual(
+            allowed_transitions(self.booking, self.manager, today=d(1)), {"issued", "cancelled"}
+        )
+        self.assertEqual(allowed_transitions(self.booking, self.manager, today=d(0)), {"cancelled"})
+
+
+class ConstraintConsistencyTests(TestCase):
+    def test_constraint_condition_matches_active_statuses(self):
+        """Умова обмеження в БД і ACTIVE_STATUSES у коді не повинні розійтися."""
+        constraint = next(
+            c for c in Booking._meta.constraints if c.name == "booking_no_overlap_per_unit"
+        )
+        self.assertEqual(
+            set(dict(constraint.condition.children)["status__in"]),
+            {str(s) for s in Booking.ACTIVE_STATUSES},
+        )
 
 
 class ConcurrentBookingTests(TransactionTestCase):
@@ -265,7 +312,7 @@ class MyBookingsTests(TestCase):
         self.client.force_login(self.client_user)
         self.assertEqual(self.cancel(self.foreign).status_code, 403)
         self.foreign.refresh_from_db()
-        self.assertEqual(self.foreign.status, Booking.Status.PENDING)
+        self.assertEqual(self.foreign.status, Booking.Status.CONFIRMED)
 
     def test_cancel_requires_post(self):
         self.client.force_login(self.client_user)
@@ -273,8 +320,7 @@ class MyBookingsTests(TestCase):
         self.assertEqual(self.client.get(url).status_code, 405)
 
     def test_cannot_cancel_after_issue(self):
-        change_status(self.mine, Booking.Status.CONFIRMED, actor=self.manager)
-        change_status(self.mine, Booking.Status.ISSUED, actor=self.manager)
+        change_status(self.mine, Booking.Status.ISSUED, actor=self.manager, today=d(1))
         self.client.force_login(self.client_user)
         response = self.cancel(self.mine, next=reverse("bookings:detail", args=[self.mine.pk]))
         self.mine.refresh_from_db()
@@ -282,8 +328,7 @@ class MyBookingsTests(TestCase):
         self.assertContains(self.client.get(response.url), "недопустимий")
 
     def test_cancel_button_hidden_after_issue(self):
-        change_status(self.mine, Booking.Status.CONFIRMED, actor=self.manager)
-        change_status(self.mine, Booking.Status.ISSUED, actor=self.manager)
+        change_status(self.mine, Booking.Status.ISSUED, actor=self.manager, today=d(1))
         self.client.force_login(self.client_user)
         response = self.client.get(reverse("bookings:detail", args=[self.mine.pk]))
         self.assertNotContains(response, "bookings/%d/cancel/" % self.mine.pk)
@@ -292,3 +337,101 @@ class MyBookingsTests(TestCase):
         self.client.force_login(self.client_user)
         response = self.cancel(self.mine, next="https://evil.example.com/")
         self.assertRedirects(response, self.my_url)
+
+
+class ManagerPanelTests(TestCase):
+    """Панель менеджера: доступ, вкладки, пошук, фільтри та дії."""
+
+    def setUp(self):
+        _, self.unit1, self.unit2, self.client_user, self.other, self.manager = make_fixture()
+        self.client_user.first_name = "Іван"
+        self.client_user.save()
+        self.today_booking = create_booking(client=self.client_user, unit=self.unit1, start=d(0), end=d(2))
+        self.future_booking = create_booking(client=self.other, unit=self.unit2, start=d(5), end=d(7))
+        self.list_url = reverse("manage:list")
+        self.client.force_login(self.manager)
+
+    def action(self, booking, name, **data):
+        return self.client.post(reverse("manage:action", args=[booking.pk, name]), data)
+
+    def make_issued(self, start, end):
+        """Видане бронювання з довільними (зокрема минулими) датами — в обхід перевірок форми."""
+        booking = Booking.objects.create(
+            unit=self.unit1, client=self.other, start_date=start, end_date=end,
+            status=Booking.Status.ISSUED, price_per_day=1, total_price=1,
+        )
+        return booking
+
+    def test_client_gets_403_and_anonymous_redirected(self):
+        self.client.force_login(self.client_user)
+        self.assertEqual(self.client.get(self.list_url).status_code, 403)
+        self.client.logout()
+        self.assertEqual(self.client.get(self.list_url).status_code, 302)
+
+    def test_issue_tab_lists_confirmed_sorted_with_counts(self):
+        response = self.client.get(self.list_url)
+        self.assertEqual(list(response.context["bookings"]), [self.today_booking, self.future_booking])
+        self.assertIn(("issue", "До видачі", 2), response.context["tabs"])
+        self.assertContains(response, "видача сьогодні")
+
+    def test_search_by_inventory_and_client_name(self):
+        response = self.client.get(self.list_url, {"q": "U-2"})
+        self.assertEqual(list(response.context["bookings"]), [self.future_booking])
+        response = self.client.get(self.list_url, {"q": "іван"})
+        self.assertEqual(list(response.context["bookings"]), [self.today_booking])
+
+    def test_date_filter_uses_overlap(self):
+        # [d4; d5]: перетинається лише з [d5; d7)
+        response = self.client.get(self.list_url, {"from": d(4).isoformat(), "to": d(5).isoformat()})
+        self.assertEqual(list(response.context["bookings"]), [self.future_booking])
+        # Некоректна дата ігнорується, а не ламає сторінку.
+        self.assertEqual(self.client.get(self.list_url, {"from": "abc"}).status_code, 200)
+
+    def test_issue_and_return(self):
+        self.assertRedirects(self.action(self.today_booking, "issue"), self.list_url)
+        self.today_booking.refresh_from_db()
+        self.assertEqual(self.today_booking.status, Booking.Status.ISSUED)
+        self.action(self.today_booking, "return")
+        self.today_booking.refresh_from_db()
+        self.assertEqual(self.today_booking.status, Booking.Status.RETURNED)
+
+    def test_issue_before_start_shows_error(self):
+        response = self.action(self.future_booking, "issue")
+        self.future_booking.refresh_from_db()
+        self.assertEqual(self.future_booking.status, Booking.Status.CONFIRMED)
+        self.assertContains(self.client.get(response.url), "не раніше дати початку")
+
+    def test_issue_button_only_when_allowed(self):
+        response = self.client.get(self.list_url)
+        self.assertContains(response, reverse("manage:action", args=[self.today_booking.pk, "issue"]))
+        self.assertNotContains(response, reverse("manage:action", args=[self.future_booking.pk, "issue"]))
+
+    def test_cancel_requires_reason_and_client_sees_it(self):
+        self.action(self.future_booking, "cancel", comment="")
+        self.future_booking.refresh_from_db()
+        self.assertEqual(self.future_booking.status, Booking.Status.CONFIRMED)
+
+        self.action(self.future_booking, "cancel", comment="Екземпляр на ремонті")
+        self.future_booking.refresh_from_db()
+        self.assertEqual(self.future_booking.status, Booking.Status.CANCELLED)
+
+        self.client.force_login(self.other)
+        detail = self.client.get(reverse("bookings:detail", args=[self.future_booking.pk]))
+        self.assertContains(detail, "Екземпляр на ремонті")
+
+    def test_overdue_flag(self):
+        overdue = self.make_issued(d(-10), d(-3))
+        response = self.client.get(self.list_url, {"tab": "issued"})
+        self.assertEqual(list(response.context["bookings"]), [overdue])
+        self.assertContains(response, "прострочено")
+
+    def test_get_not_allowed_and_unknown_action_404(self):
+        url = reverse("manage:action", args=[self.today_booking.pk, "issue"])
+        self.assertEqual(self.client.get(url).status_code, 405)
+        self.assertEqual(self.action(self.today_booking, "delete").status_code, 404)
+
+    def test_client_cannot_use_manager_actions(self):
+        self.client.force_login(self.client_user)
+        self.assertEqual(self.action(self.today_booking, "issue").status_code, 403)
+        self.today_booking.refresh_from_db()
+        self.assertEqual(self.today_booking.status, Booking.Status.CONFIRMED)

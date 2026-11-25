@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Заявки{% endblock %}
+{% block content %}
+<h1>Заявки</h1>
+
+<form method="get" class="filters">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <label>Клієнт, інв. номер або обладнання
+    <input type="search" name="q" value="{{ query }}">
+  </label>
+  <label>Період з <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}"></label>
+  <label>по <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}"></label>
+  <button type="submit">Знайти</button>
+  {% if query or date_from or date_to %}<a href="?tab={{ tab }}">Скинути</a>{% endif %}
+</form>
+
+<nav class="tabs">
+  {% for key, label, count in tabs %}
+    <a href="?tab={{ key }}{% if filters %}&amp;{{ filters }}{% endif %}" {% if key == tab %}class="current"{% endif %}>
+      {{ label }} <span class="count">({{ count }})</span>
+    </a>
+  {% endfor %}
+</nav>
+
+{% if bookings %}
+  <table class="data">
+    <tr><th>№</th><th>Клієнт</th><th>Обладнання</th><th>Період</th><th>Вартість</th><th>Статус</th><th>Дії</th></tr>
+    {% for b in bookings %}
+      <tr>
+        <td><a href="{% url 'bookings:detail' b.pk %}">{{ b.pk }}</a></td>
+        <td>{{ b.client }}{% if b.client.phone %}<br><span class="muted">{{ b.client.phone }}</span>{% endif %}</td>
+        <td>{{ b.unit.equipment_type }}<br><span class="muted">Інв. № {{ b.unit.inventory_number }}</span></td>
+        <td>{{ b.start_date|date:"d.m.Y" }} — {{ b.end_date|date:"d.m.Y" }}</td>
+        <td>{{ b.total_price }} грн</td>
+        <td>{{ b.get_status_display }} {% include "bookings/includes/status_badges.html" with booking=b %}</td>
+        <td>{% include "bookings/includes/manager_actions.html" with booking=b next=request.get_full_path %}</td>
+      </tr>
+    {% endfor %}
+  </table>
+{% else %}
+  <p>Заявок не знайдено.</p>
+{% endif %}
+{% endblock %}

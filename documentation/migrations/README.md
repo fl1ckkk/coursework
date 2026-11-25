@@ -40,6 +40,9 @@
 ```
 accounts.0001_initial ─┐
 catalog.0001_initial ──┼─▶ bookings.0001_initial ─▶ bookings.0002_btree_gist_extension ─▶ bookings.0003_booking_no_overlap
+                                                                                                  │
+                                                                                                  ▼
+                                                                                  bookings.0004_auto_confirm_bookings
 ```
 
 ## Перелік міграцій
@@ -51,6 +54,7 @@ catalog.0001_initial ──┼─▶ bookings.0001_initial ─▶ bookings.0002_
 | `bookings.0001_initial` | Бронювання, журнал подій, CHECK-обмеження | [bookings_0001_initial.md](bookings_0001_initial.md) |
 | `bookings.0002_btree_gist_extension` | Розширення PostgreSQL `btree_gist` | [bookings_0002_btree_gist_extension.md](bookings_0002_btree_gist_extension.md) |
 | `bookings.0003_booking_no_overlap` | Заборона перетину бронювань | [bookings_0003_booking_no_overlap.md](bookings_0003_booking_no_overlap.md) |
+| `bookings.0004_auto_confirm_bookings` | Автопідтвердження: прибрано статуси `pending` і `rejected`, перенесено дані, оновлено умову обмеження | [bookings_0004_auto_confirm_bookings.md](bookings_0004_auto_confirm_bookings.md) |
 
 Стандартні міграції Django (`auth`, `admin`, `contenttypes`, `sessions`)
 не описуються окремо: вони не є власною розробкою.

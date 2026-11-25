@@ -10,16 +10,20 @@ from django.views.decorators.http import require_POST
 from catalog.models import EquipmentType
 
 from .forms import BookingForm
+from .manager_views import mark
 from .models import Booking
-from .services import TRANSITIONS, BookingError, change_status, create_booking, current_tariff
+from .services import (
+    BookingError,
+    allowed_transitions,
+    change_status,
+    create_booking,
+    current_tariff,
+)
 
 # Вкладки сторінки «Мої бронювання»: назва -> статуси.
 MY_TABS = {
     "active": ("Поточні", Booking.ACTIVE_STATUSES),
-    "archive": (
-        "Архів",
-        (Booking.Status.RETURNED, Booking.Status.REJECTED, Booking.Status.CANCELLED),
-    ),
+    "archive": ("Архів", (Booking.Status.RETURNED, Booking.Status.CANCELLED)),
 }
 
 
@@ -49,7 +53,7 @@ def booking_create(request, type_pk):
                 # Зайнятий період, відсутній тариф тощо — показуємо над формою.
                 form.add_error(None, str(exc))
             else:
-                messages.success(request, "Заявку створено. Очікуйте погодження менеджера.")
+                messages.success(request, "Бронювання підтверджено. Заберіть обладнання в день початку оренди.")
                 return redirect("bookings:detail", pk=booking.pk)
     else:
         form = BookingForm(equipment_type=equipment_type, initial=_initial_from_query(request))
@@ -112,20 +116,22 @@ def booking_detail(request, pk):
     if not (request.user.is_manager or booking.client_id == request.user.pk):
         raise PermissionDenied
     events = booking.events.select_related("actor")
-    context = {"booking": booking, "events": events, "can_cancel": can_cancel(booking, request.user)}
+    context = {"booking": booking, "events": events}
+    if request.user.is_manager:
+        # Менеджер бачить ті самі кнопки дій, що й у панелі.
+        context["booking"] = mark(booking, request.user, date.today())
+    else:
+        context["can_cancel"] = can_cancel(booking, request.user)
     return render(request, "bookings/detail.html", context)
 
 
 def can_cancel(booking: Booking, user) -> bool:
-    """Чи показувати кнопку «Скасувати».
+    """Чи показувати клієнту кнопку «Скасувати».
 
-    Правила беруться з тієї самої таблиці TRANSITIONS, що й у services.change_status,
-    тому кнопка й перевірка на сервері не можуть розійтися.
+    Правила беруться з services.allowed_transitions — тих самих перевірок,
+    що й у services.change_status, тому кнопка й сервер не можуть розійтися.
     """
-    allowed = TRANSITIONS.get(booking.status, {})
-    return Booking.Status.CANCELLED in allowed and (
-        user.is_manager or booking.client_id == user.pk
-    )
+    return Booking.Status.CANCELLED in allowed_transitions(booking, user)
 
 
 def _initial_from_query(request) -> dict:

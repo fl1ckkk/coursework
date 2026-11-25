@@ -1,0 +1,3 @@
+{% if booking.is_issue_today %}<span class="badge today">видача сьогодні</span>{% endif %}
+{% if booking.is_not_picked_up %}<span class="badge warn">не забрали</span>{% endif %}
+{% if booking.is_overdue %}<span class="badge overdue">прострочено</span>{% endif %}

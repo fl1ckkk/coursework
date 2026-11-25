@@ -1,0 +1,23 @@
+{# Кнопки дій менеджера. Параметри: booking (з полем allowed), next. #}
+<div class="actions">
+  {% if "issued" in booking.allowed %}
+    <form method="post" action="{% url 'manage:action' booking.pk 'issue' %}">
+      {% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
+      <button type="submit" class="secondary">Видати</button>
+    </form>
+  {% endif %}
+  {% if "returned" in booking.allowed %}
+    <form method="post" action="{% url 'manage:action' booking.pk 'return' %}">
+      {% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
+      <button type="submit" class="secondary">Прийняти повернення</button>
+    </form>
+  {% endif %}
+  {% if "cancelled" in booking.allowed %}
+    <form method="post" action="{% url 'manage:action' booking.pk 'cancel' %}"
+          onsubmit="return confirm('Скасувати заявку № {{ booking.pk }}?');">
+      {% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
+      <input type="text" name="comment" placeholder="Причина скасування" required maxlength="255">
+      <button type="submit" class="danger">Скасувати</button>
+    </form>
+  {% endif %}
+</div>

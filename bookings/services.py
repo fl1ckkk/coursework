@@ -24,12 +24,8 @@ class BookingConflict(BookingError):
 
 
 # Допустимі переходи статусів: зі стану -> {новий стан: хто може}.
+# Погодження вручну немає: заявка, що пройшла перевірки, одразу «Підтверджено».
 TRANSITIONS = {
-    Booking.Status.PENDING: {
-        Booking.Status.CONFIRMED: "manager",
-        Booking.Status.REJECTED: "manager",
-        Booking.Status.CANCELLED: "owner_or_manager",
-    },
     Booking.Status.CONFIRMED: {
         Booking.Status.ISSUED: "manager",
         Booking.Status.CANCELLED: "owner_or_manager",
@@ -78,7 +74,11 @@ def validate_period(start: date, end: date, today: date | None = None) -> None:
 
 
 def create_booking(*, client, unit: EquipmentUnit, start: date, end: date) -> Booking:
-    """Створює заявку на бронювання.
+    """Створює бронювання й одразу підтверджує його.
+
+    Ручного погодження немає: якщо будь-яка перевірка не пройшла
+    (дати, стан екземпляра, тариф, перетин), система відхиляє заявку
+    винятком BookingError і нічого не зберігає.
 
     Перетин інтервалів остаточно перевіряє обмеження booking_no_overlap_per_unit
     у PostgreSQL. Попередня перевірка в Python потрібна лише для зрозумілого
@@ -99,6 +99,7 @@ def create_booking(*, client, unit: EquipmentUnit, start: date, end: date) -> Bo
                 client=client,
                 start_date=start,
                 end_date=end,
+                status=Booking.Status.CONFIRMED,
                 price_per_day=tariff.price_per_day,
                 total_price=total,
             )
@@ -114,8 +115,13 @@ def create_booking(*, client, unit: EquipmentUnit, start: date, end: date) -> Bo
     return booking
 
 
-def change_status(booking: Booking, new_status: str, *, actor, comment: str = "") -> Booking:
-    """Переводить бронювання в новий статус з перевіркою прав і журналом."""
+def check_transition(booking: Booking, new_status: str, actor, today: date | None = None) -> None:
+    """Перевіряє, чи може actor перевести бронювання в new_status. Інакше — BookingError.
+
+    Одна функція для сервера й інтерфейсу: за нею ж визначається,
+    які кнопки показувати (allowed_transitions).
+    """
+    today = today or date.today()
     allowed = TRANSITIONS.get(booking.status, {})
     if new_status not in allowed:
         raise BookingError(
@@ -128,11 +134,44 @@ def change_status(booking: Booking, new_status: str, *, actor, comment: str = ""
         raise BookingError("Цю дію може виконати лише менеджер.")
     if who == "owner_or_manager" and not (is_manager or booking.client_id == actor.pk):
         raise BookingError("Можна скасувати лише власне бронювання.")
-    if new_status == Booking.Status.REJECTED and not comment.strip():
-        raise BookingError("Вкажіть причину відхилення.")
+    if new_status == Booking.Status.ISSUED and booking.start_date > today:
+        raise BookingError(
+            f"Видати можна не раніше дати початку оренди ({booking.start_date:%d.%m.%Y})."
+        )
+
+
+def allowed_transitions(booking: Booking, actor, today: date | None = None) -> set[str]:
+    """Статуси, у які actor може перевести бронювання зараз (для показу кнопок)."""
+    result = set()
+    for status in TRANSITIONS.get(booking.status, {}):
+        try:
+            check_transition(booking, status, actor, today)
+        except BookingError:
+            continue
+        result.add(status)
+    return result
+
+
+def change_status(
+    booking: Booking, new_status: str, *, actor, comment: str = "", today: date | None = None
+) -> Booking:
+    """Переводить бронювання в новий статус з перевіркою прав і журналом.
+
+    Рядок блокується (SELECT ... FOR UPDATE), а перевірка повторюється вже
+    під блокуванням. Тому якщо два менеджери одночасно натиснуть «Видати»,
+    друга дія побачить новий статус і отримає зрозумілу помилку.
+    """
+    comment = comment.strip()
+    # Клієнт має знати, чому менеджер скасував його бронювання.
+    if new_status == Booking.Status.CANCELLED and booking.client_id != actor.pk and not comment:
+        raise BookingError("Вкажіть причину скасування — її побачить клієнт.")
 
     with transaction.atomic():
-        booking.status = new_status
-        booking.save(update_fields=["status", "updated_at"])
-        BookingEvent.objects.create(booking=booking, kind=new_status, actor=actor, comment=comment)
+        locked = Booking.objects.select_for_update().get(pk=booking.pk)
+        check_transition(locked, new_status, actor, today)
+        locked.status = new_status
+        locked.save(update_fields=["status", "updated_at"])
+        BookingEvent.objects.create(booking=locked, kind=new_status, actor=actor, comment=comment)
+
+    booking.status, booking.updated_at = locked.status, locked.updated_at
     return booking
