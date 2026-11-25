@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Сторінку не знайдено{% endblock %}
+{% block content %}
+<div class="card empty-state">
+  <h1>Сторінку не знайдено</h1>
+  <p>Можливо, адресу введено з помилкою або цей запис більше недоступний.</p>
+  <p><a class="btn btn-primary" href="{% url 'catalog:list' %}">До каталогу</a></p>
+</div>
+{% endblock %}

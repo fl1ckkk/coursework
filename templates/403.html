@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Доступ заборонено{% endblock %}
+{% block content %}
+<div class="card empty-state">
+  <h1>Доступ заборонено</h1>
+  <p>У вас немає прав на цю дію або сторінку.
+    {% if not user.is_authenticated %}Можливо, потрібно <a href="{% url 'login' %}">увійти</a>.{% endif %}</p>
+  <p><a class="btn btn-primary" href="{% url 'catalog:list' %}">До каталогу</a></p>
+</div>
+{% endblock %}

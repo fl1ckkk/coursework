@@ -26,7 +26,7 @@ from django.db import IntegrityError, transaction
 
 from accounts.models import User
 from bookings.models import Booking, BookingEvent
-from bookings.services import calculate_late_fee
+from bookings.services import calculate_late_fee, money
 from catalog.models import EquipmentType, EquipmentUnit, Tariff
 
 DEMO_PASSWORD = "demo-pass-123"
@@ -168,7 +168,7 @@ class Command(BaseCommand):
                     booking.late_days, booking.late_fee = calculate_late_fee(price, end, booking.returned_on)
                     booking.save(update_fields=["returned_on", "late_days", "late_fee"])
                     comment = (
-                        f"Запізнення {booking.late_days} дн., доплата {booking.late_fee} грн."
+                        f"Запізнення {booking.late_days} дн., доплата {money(booking.late_fee)} грн."
                         if booking.late_days else ""
                     )
                     BookingEvent.objects.create(

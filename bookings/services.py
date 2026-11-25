@@ -31,6 +31,11 @@ DEADLOCK_DETECTED = "40P01"
 CREATE_ATTEMPTS = 3
 
 
+def money(amount: Decimal) -> str:
+    """Сума у форматі сайту: два знаки після коми, «1500,00»."""
+    return f"{amount:.2f}".replace(".", ",")
+
+
 def is_deadlock(exc: OperationalError) -> bool:
     return getattr(exc.__cause__, "sqlstate", None) == DEADLOCK_DETECTED
 
@@ -225,7 +230,7 @@ def change_status(
             )
             fields += ["returned_on", "late_days", "late_fee"]
             if locked.late_days:
-                late_note = f"Запізнення {locked.late_days} дн., доплата {locked.late_fee} грн."
+                late_note = f"Запізнення {locked.late_days} дн., доплата {money(locked.late_fee)} грн."
                 comment = f"{comment} {late_note}".strip()
         locked.save(update_fields=fields)
         BookingEvent.objects.create(booking=locked, kind=new_status, actor=actor, comment=comment)
@@ -312,7 +317,7 @@ def _extend_once(booking: Booking, new_end: date, actor, today: date | None) -> 
             actor=actor,
             comment=(
                 f"Дата повернення {old_end:%d.%m.%Y} → {new_end:%d.%m.%Y}, "
-                f"+{(new_end - old_end).days} дн., доплата {locked.total_price - old_total} грн."
+                f"+{(new_end - old_end).days} дн., доплата {money(locked.total_price - old_total)} грн."
             ),
         )
     booking.end_date, booking.total_price = locked.end_date, locked.total_price

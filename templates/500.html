@@ -1,0 +1,19 @@
+{% load static %}<!DOCTYPE html>
+{# Окремий шаблон без base.html: при помилці сервера контекст запиту може бути недоступний. #}
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Помилка сервера · Оренда обладнання</title>
+  <link rel="stylesheet" href="{% static 'css/site.css' %}">
+</head>
+<body>
+<main class="container">
+  <div class="card empty-state">
+    <h1>Щось пішло не так</h1>
+    <p>На сервері сталася помилка. Ваші дані не змінено. Спробуйте оновити сторінку трохи згодом.</p>
+    <p><a class="btn btn-primary" href="/">На головну</a></p>
+  </div>
+</main>
+</body>
+</html>

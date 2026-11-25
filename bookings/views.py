@@ -17,6 +17,7 @@ from .services import (
     allowed_transitions,
     can_extend,
     extend_booking,
+    money,
     change_status,
     create_booking,
     current_tariff,
@@ -129,7 +130,7 @@ def booking_extend(request, pk):
             messages.success(
                 request,
                 f"Оренду продовжено до {booking.end_date:%d.%m.%Y}. "
-                f"Нова вартість: {booking.total_price} грн.",
+                f"Нова вартість: {money(booking.total_price)} грн.",
             )
     return redirect("bookings:detail", pk=pk)
 

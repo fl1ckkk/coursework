@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Некоректний запит{% endblock %}
+{% block content %}
+<div class="card empty-state">
+  <h1>Некоректний запит</h1>
+  <p>Сервер не зміг обробити цей запит. Спробуйте ще раз.</p>
+  <p><a class="btn btn-primary" href="{% url 'catalog:list' %}">До каталогу</a></p>
+</div>
+{% endblock %}

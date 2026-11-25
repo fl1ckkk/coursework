@@ -526,7 +526,7 @@ class ExtensionTests(TestCase):
         self.assertEqual(self.booking.total_price, Decimal("2000.00"))  # 4 доби × 500
         event = self.booking.events.get(kind=BookingEvent.Kind.EXTENDED)
         self.assertIn("+2 дн.", event.comment)
-        self.assertIn("доплата 1000.00 грн", event.comment)
+        self.assertIn("доплата 1000,00 грн", event.comment)
 
     def test_price_uses_snapshot_not_new_tariff(self):
         Tariff.objects.create(equipment_type=self.unit1.equipment_type, price_per_day=900, valid_from=d(-1))
@@ -694,3 +694,34 @@ class ManagerPaginationTests(TestCase):
         second = self.client.get(reverse("manage:list"), {"page": 2})
         self.assertEqual(len(second.context["bookings"]), 5)
         self.assertEqual(self.client.get(reverse("manage:list"), {"page": "x"}).status_code, 200)
+
+
+class ErrorPagesAndAdminTests(TestCase):
+    """Сторінки помилок українською та адмінка бронювань лише для перегляду."""
+
+    def setUp(self):
+        _, self.unit1, _, self.client_user, _, self.manager = make_fixture()
+        self.booking = create_booking(client=self.client_user, unit=self.unit1, start=d(1), end=d(3))
+
+    def test_404_page(self):
+        response = self.client.get("/equipment/99999/")
+        self.assertEqual(response.status_code, 404)
+        self.assertContains(response, "Сторінку не знайдено", status_code=404)
+        self.assertContains(response, "css/site.css", status_code=404)
+
+    def test_403_page(self):
+        self.client.force_login(self.client_user)
+        response = self.client.get(reverse("manage:list"))
+        self.assertContains(response, "Доступ заборонено", status_code=403)
+
+    def test_booking_admin_is_read_only(self):
+        admin_user = User.objects.create_superuser("root", "root@example.com", "x")
+        self.client.force_login(admin_user)
+        url = reverse("admin:bookings_booking_change", args=[self.booking.pk])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'name="status"')
+        self.assertNotContains(response, 'name="end_date"')
+        self.assertEqual(self.client.get(reverse("admin:bookings_booking_add")).status_code, 403)
+        delete_url = reverse("admin:bookings_booking_delete", args=[self.booking.pk])
+        self.assertEqual(self.client.get(delete_url).status_code, 403)
