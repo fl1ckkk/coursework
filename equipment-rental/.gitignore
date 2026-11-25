@@ -1,0 +1,19 @@
+# Секрети та локальні налаштування
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Django
+staticfiles/
+media/
+*.sqlite3
+
+# IDE / ОС
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

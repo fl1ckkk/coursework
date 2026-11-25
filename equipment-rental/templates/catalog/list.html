@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Каталог обладнання</h1>
+<form method="get" role="search">
+  <label>Пошук <input type="search" name="q" value="{{ query }}"></label>
+  <label>Категорія
+    <select name="category">
+      <option value="">Усі</option>
+      {% for c in categories %}<option value="{{ c }}" {% if c == category %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="submit">Знайти</button>
+</form>
+{% for item in items %}
+  <div class="card">
+    <a href="{% url 'catalog:detail' item.pk %}"><strong>{{ item.name }}</strong></a>
+    <div class="muted">{{ item.category }}</div>
+  </div>
+{% empty %}
+  <p>За вашим запитом нічого не знайдено.</p>
+{% endfor %}
+{% endblock %}

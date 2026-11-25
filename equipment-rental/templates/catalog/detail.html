@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ item.name }}{% endblock %}
+{% block content %}
+<h1>{{ item.name }}</h1>
+<p class="muted">{{ item.category }}</p>
+<p>{{ item.description|linebreaksbr }}</p>
+<h2>Екземпляри</h2>
+{% for unit in units %}
+  <div class="card">
+    <strong>Інв. № {{ unit.inventory_number }}</strong>
+    {% if unit.busy_periods %}
+      <div>Зайнято (дата повернення не входить у період):</div>
+      <ul>{% for b in unit.busy_periods %}<li>{{ b.start_date|date:"d.m.Y" }} — {{ b.end_date|date:"d.m.Y" }}</li>{% endfor %}</ul>
+    {% else %}
+      <div class="muted">Вільний на всі дати.</div>
+    {% endif %}
+  </div>
+{% empty %}
+  <p>Зараз немає доступних екземплярів.</p>
+{% endfor %}
+{% endblock %}
