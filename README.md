@@ -24,8 +24,8 @@
 ### 1. Отримати код і встановити залежності
 
 ```bash
-git clone <адреса-репозиторію>
-cd equipment-rental
+git clone https://github.com/fl1ckkk/coursework.git
+cd coursework
 python -m venv .venv
 # Windows:      .venv\Scripts\activate
 # Linux/macOS:  source .venv/bin/activate
