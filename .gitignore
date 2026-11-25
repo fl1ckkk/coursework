@@ -17,3 +17,6 @@ media/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Результати навантажувального тестування (CSV)
+results/

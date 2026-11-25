@@ -8,6 +8,7 @@
 | [modules/catalog.md](modules/catalog.md) | Каталог: типи, екземпляри, тарифи |
 | [modules/bookings.md](modules/bookings.md) | Бронювання, перевірка перетину, вартість, статуси |
 | [migrations/README.md](migrations/README.md) | Інструмент міграцій, команди, правила, перелік міграцій |
+| [load-testing.md](load-testing.md) | Навантажувальне тестування: сценарії, запуск, результати, висновки |
 | [tooling-and-ai.md](tooling-and-ai.md) | Інструментарій розробки та журнал використання ШІ |
 
 ## Правило ведення

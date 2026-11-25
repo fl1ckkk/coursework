@@ -83,6 +83,8 @@ python manage.py runserver
 python manage.py test
 ```
 
+Навантажувальне тестування: [`documentation/load-testing.md`](documentation/load-testing.md).
+
 ## Структура
 
 ```
@@ -91,5 +93,6 @@ accounts/        користувачі й ролі (клієнт, менедж�
 catalog/         типи обладнання, екземпляри, тарифи, сторінки каталогу
 bookings/        бронювання, журнал подій, бізнес-правила (services.py)
 templates/       HTML-шаблони
+loadtest/        сценарії навантажувального тестування (Locust)
 documentation/   документація проєкту та міграцій
 ```
