@@ -24,9 +24,14 @@ def equipment_list(request):
         .order_by("-valid_from")
         .values("price_per_day")[:1]
     )
-    items = EquipmentType.objects.filter(is_active=True).annotate(
-        price=Subquery(current_price),
-        units_available=Count("units", filter=Q(units__status=EquipmentUnit.Status.AVAILABLE)),
+    # Сортування задано явно: у запитах з агрегацією (Count) Django не застосовує Meta.ordering.
+    items = (
+        EquipmentType.objects.filter(is_active=True)
+        .annotate(
+            price=Subquery(current_price),
+            units_available=Count("units", filter=Q(units__status=EquipmentUnit.Status.AVAILABLE)),
+        )
+        .order_by("category", "name")
     )
     if query:
         items = items.filter(Q(name__icontains=query) | Q(description__icontains=query))
