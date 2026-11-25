@@ -7,7 +7,7 @@
 ```
 Браузер ──HTTP──▶ Django (config/urls.py)
                     ├── catalog/views.py   сторінки каталогу
-                    ├── (заплановано) bookings/views.py
+                    ├── bookings/views.py  оформлення й перегляд заявок
                     └── admin              адміністрування
                           │
                           ▼
@@ -26,8 +26,8 @@
 | `config` | Налаштування, підключення до БД, маршрути верхнього рівня | `settings.py`, `urls.py` |
 | `accounts` | Модель користувача з роллю (клієнт / менеджер) | `models.py`, `admin.py` |
 | `catalog` | Типи обладнання, екземпляри, тарифи; сторінки каталогу; демо-дані | `models.py`, `views.py`, `management/commands/seed_demo.py` |
-| `bookings` | Бронювання, журнал подій, усі правила зміни бронювань | `models.py`, `services.py`, `tests.py` |
-| `templates` | HTML-шаблони сторінок | `base.html`, `catalog/*.html` |
+| `bookings` | Бронювання, журнал подій, усі правила зміни бронювань; сторінки заявок | `models.py`, `services.py`, `forms.py`, `views.py`, `tests.py` |
+| `templates` | HTML-шаблони сторінок | `base.html`, `catalog/*.html`, `bookings/*.html` |
 
 ## Де перевіряються правила
 

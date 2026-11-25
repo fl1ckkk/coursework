@@ -40,13 +40,18 @@ TRANSITIONS = {
 }
 
 
-def tariff_for(unit: EquipmentUnit, on_date: date) -> Tariff:
-    """Тариф, чинний на дату початку оренди (останній з valid_from <= on_date)."""
-    tariff = (
-        Tariff.objects.filter(equipment_type=unit.equipment_type, valid_from__lte=on_date)
+def current_tariff(equipment_type, on_date: date) -> Tariff | None:
+    """Тариф типу обладнання, чинний на дату (останній з valid_from <= on_date)."""
+    return (
+        Tariff.objects.filter(equipment_type=equipment_type, valid_from__lte=on_date)
         .order_by("-valid_from")
         .first()
     )
+
+
+def tariff_for(unit: EquipmentUnit, on_date: date) -> Tariff:
+    """Тариф для екземпляра на дату початку оренди; помилка, якщо тарифу немає."""
+    tariff = current_tariff(unit.equipment_type, on_date)
     if tariff is None:
         raise BookingError("Для цього обладнання не задано тариф на вибрану дату.")
     return tariff

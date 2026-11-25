@@ -1,9 +1,14 @@
 {% extends "base.html" %}
 {% block title %}{{ item.name }}{% endblock %}
 {% block content %}
+<p><a href="{% url 'catalog:list' %}">← До каталогу</a></p>
 <h1>{{ item.name }}</h1>
 <p class="muted">{{ item.category }}</p>
 <p>{{ item.description|linebreaksbr }}</p>
+{% if tariff %}
+  <p class="price">{{ tariff.price_per_day }} грн / доба</p>
+{% endif %}
+
 <h2>Екземпляри</h2>
 {% for unit in units %}
   <div class="card">
@@ -13,6 +18,9 @@
       <ul>{% for b in unit.busy_periods %}<li>{{ b.start_date|date:"d.m.Y" }} — {{ b.end_date|date:"d.m.Y" }}</li>{% endfor %}</ul>
     {% else %}
       <div class="muted">Вільний на всі дати.</div>
+    {% endif %}
+    {% if tariff and not user.is_manager %}
+      <a class="button" href="{% url 'bookings:create' item.pk %}?unit={{ unit.pk }}">Забронювати</a>
     {% endif %}
   </div>
 {% empty %}

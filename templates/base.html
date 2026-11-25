@@ -11,6 +11,17 @@
     .card { border: 1px solid #ddd; border-radius: 6px; padding: .75rem 1rem; margin-bottom: .75rem; }
     .muted { color: #555; }
     form.inline { display: inline; }
+    .price { font-size: 1.25rem; font-weight: 600; }
+    a.button, button.primary { display: inline-block; margin-top: .5rem; padding: .4rem .9rem; border: 0; border-radius: 4px;
+      background: #0b5cad; color: #fff; text-decoration: none; font: inherit; cursor: pointer; }
+    .messages { list-style: none; padding: 0; }
+    .messages li { padding: .5rem .75rem; border-radius: 4px; margin-bottom: .5rem; background: #e7f4e4; }
+    .errorlist { color: #b00020; padding-left: 1.2rem; }
+    .form-row { margin-bottom: .75rem; }
+    .form-row label { display: block; font-weight: 600; }
+    .helptext { display: block; color: #555; font-size: .9rem; }
+    table.data { border-collapse: collapse; width: 100%; }
+    table.data th, table.data td { border-bottom: 1px solid #ddd; padding: .4rem; text-align: left; }
   </style>
 </head>
 <body>
@@ -26,6 +37,9 @@
   </nav>
 </header>
 <main>
+  {% if messages %}
+    <ul class="messages">{% for m in messages %}<li>{{ m }}</li>{% endfor %}</ul>
+  {% endif %}
   {% block content %}{% endblock %}
 </main>
 </body>

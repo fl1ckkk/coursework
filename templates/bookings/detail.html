@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Заявка № {{ booking.pk }}{% endblock %}
+{% block content %}
+<h1>Заявка № {{ booking.pk }}</h1>
+
+<table class="data">
+  <tr><th>Обладнання</th><td><a href="{% url 'catalog:detail' booking.unit.equipment_type.pk %}">{{ booking.unit.equipment_type }}</a></td></tr>
+  <tr><th>Екземпляр</th><td>Інв. № {{ booking.unit.inventory_number }}</td></tr>
+  <tr><th>Період</th><td>{{ booking.start_date|date:"d.m.Y" }} — {{ booking.end_date|date:"d.m.Y" }} (діб: {{ booking.days }})</td></tr>
+  <tr><th>Ціна за добу</th><td>{{ booking.price_per_day }} грн</td></tr>
+  <tr><th>Вартість</th><td><strong>{{ booking.total_price }} грн</strong></td></tr>
+  <tr><th>Статус</th><td>{{ booking.get_status_display }}</td></tr>
+  {% if user.is_manager %}<tr><th>Клієнт</th><td>{{ booking.client }}</td></tr>{% endif %}
+</table>
+
+<h2>Історія</h2>
+<table class="data">
+  <tr><th>Час</th><th>Подія</th><th>Хто</th><th>Коментар</th></tr>
+  {% for e in events %}
+    <tr>
+      <td>{{ e.created_at|date:"d.m.Y H:i" }}</td>
+      <td>{{ e.get_kind_display }}</td>
+      <td>{{ e.actor }}</td>
+      <td>{{ e.comment }}</td>
+    </tr>
+  {% endfor %}
+</table>
+{% endblock %}

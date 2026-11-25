@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Бронювання — {{ item.name }}{% endblock %}
+{% block content %}
+<p><a href="{% url 'catalog:detail' item.pk %}">← {{ item.name }}</a></p>
+<h1>Бронювання: {{ item.name }}</h1>
+
+{% if not tariff %}
+  <p>Для цього обладнання ще не задано ціну, тому бронювання недоступне.</p>
+{% elif not form.fields.unit.queryset.exists %}
+  <p>Зараз немає доступних екземплярів.</p>
+{% else %}
+  <p class="price">{{ tariff.price_per_day }} грн / доба</p>
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    {% for field in form %}
+      <div class="form-row">
+        {{ field.label_tag }}
+        {{ field }}
+        {% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}
+        {{ field.errors }}
+      </div>
+    {% endfor %}
+
+    <p id="estimate" class="muted" data-price="{{ tariff.price_per_day|stringformat:'s' }}"></p>
+    <button type="submit" class="primary">Надіслати заявку</button>
+  </form>
+
+  <script>
+    // Попередній розрахунок для зручності. Остаточну вартість рахує сервер.
+    (function () {
+      const out = document.getElementById("estimate");
+      const price = parseFloat(out.dataset.price);
+      const start = document.getElementById("id_start_date");
+      const end = document.getElementById("id_end_date");
+
+      function update() {
+        if (!start.value || !end.value) { out.textContent = ""; return; }
+        const days = Math.round((new Date(end.value) - new Date(start.value)) / 86400000);
+        out.textContent = days > 0
+          ? "Діб: " + days + ". Орієнтовна вартість: " + (days * price).toFixed(2) + " грн."
+          : "Дата повернення має бути пізніше за дату видачі.";
+      }
+
+      start.addEventListener("change", update);
+      end.addEventListener("change", update);
+      update();
+    })();
+  </script>
+{% endif %}
+{% endblock %}

@@ -10,6 +10,7 @@ from decimal import Decimal
 
 from django.db import IntegrityError, connection, transaction
 from django.test import TestCase, TransactionTestCase
+from django.urls import reverse
 
 from accounts.models import User
 from catalog.models import EquipmentType, EquipmentUnit, Tariff
@@ -162,3 +163,67 @@ class ConcurrentBookingTests(TransactionTestCase):
 
         self.assertEqual(sorted(results), ["conflict", "ok"])
         self.assertEqual(Booking.objects.count(), 1)
+
+
+class BookingViewTests(TestCase):
+    """Сторінки оформлення й перегляду заявки."""
+
+    def setUp(self):
+        self.etype, self.unit1, self.unit2, self.client_user, self.other, self.manager = make_fixture()
+        self.url = reverse("bookings:create", args=[self.etype.pk])
+
+    def post(self, unit, start, end):
+        return self.client.post(
+            self.url, {"unit": unit.pk, "start_date": start.isoformat(), "end_date": end.isoformat()}
+        )
+
+    def test_anonymous_redirected_to_login(self):
+        response = self.client.get(self.url)
+        self.assertRedirects(response, f"{reverse('login')}?next={self.url}")
+
+    def test_manager_cannot_open_form(self):
+        self.client.force_login(self.manager)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_client_sees_form_with_price(self):
+        self.client.force_login(self.client_user)
+        response = self.client.get(self.url)
+        self.assertContains(response, "Надіслати заявку")
+        self.assertContains(response, "500,00 грн / доба")
+
+    def test_valid_post_creates_booking_and_redirects(self):
+        self.client.force_login(self.client_user)
+        response = self.post(self.unit1, d(1), d(3))
+        booking = Booking.objects.get()
+        self.assertRedirects(response, reverse("bookings:detail", args=[booking.pk]))
+        self.assertEqual(booking.client, self.client_user)
+        self.assertEqual(booking.total_price, Decimal("1000.00"))
+
+    def test_overlap_shows_error_on_form(self):
+        create_booking(client=self.other, unit=self.unit1, start=d(1), end=d(5))
+        self.client.force_login(self.client_user)
+        response = self.post(self.unit1, d(2), d(4))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "уже заброньовано")
+        self.assertEqual(Booking.objects.count(), 1)
+
+    def test_invalid_dates_show_error(self):
+        self.client.force_login(self.client_user)
+        response = self.post(self.unit1, d(3), d(1))
+        self.assertContains(response, "пізніше за дату видачі")
+        self.assertFalse(Booking.objects.exists())
+
+    def test_unit_of_other_type_rejected(self):
+        foreign_type = EquipmentType.objects.create(name="Намет", category="Туризм")
+        foreign_unit = EquipmentUnit.objects.create(equipment_type=foreign_type, inventory_number="X-1")
+        self.client.force_login(self.client_user)
+        response = self.post(foreign_unit, d(1), d(2))
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Booking.objects.exists())
+
+    def test_detail_visible_to_owner_and_manager_only(self):
+        booking = create_booking(client=self.client_user, unit=self.unit1, start=d(1), end=d(3))
+        url = reverse("bookings:detail", args=[booking.pk])
+        for user, expected in ((self.client_user, 200), (self.manager, 200), (self.other, 403)):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(url).status_code, expected, user.username)

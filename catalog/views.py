@@ -1,7 +1,10 @@
+from datetime import date
+
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, render
 
 from bookings.models import Booking
+from bookings.services import current_tariff
 
 from .models import EquipmentType, EquipmentUnit
 
@@ -29,12 +32,19 @@ def equipment_list(request):
 
 
 def equipment_detail(request, pk):
-    """Картка типу обладнання: екземпляри та їхні зайняті періоди."""
+    """Картка типу обладнання: ціна, екземпляри та їхні майбутні зайняті періоди."""
     item = get_object_or_404(EquipmentType, pk=pk, is_active=True)
+    today = date.today()
     units = item.units.filter(status=EquipmentUnit.Status.AVAILABLE).prefetch_related("bookings")
     for unit in units:
+        # Минулі бронювання клієнту не цікаві — показуємо ті, що ще не завершились.
         unit.busy_periods = sorted(
-            (b for b in unit.bookings.all() if b.status in Booking.ACTIVE_STATUSES),
+            (
+                b
+                for b in unit.bookings.all()
+                if b.status in Booking.ACTIVE_STATUSES and b.end_date > today
+            ),
             key=lambda b: b.start_date,
         )
-    return render(request, "catalog/detail.html", {"item": item, "units": units})
+    context = {"item": item, "units": units, "tariff": current_tariff(item, today)}
+    return render(request, "catalog/detail.html", context)
