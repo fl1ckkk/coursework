@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Мої бронювання{% endblock %}
+{% block content %}
+<h1>Мої бронювання</h1>
+
+<nav class="tabs">
+  {% for key, label in tabs %}
+    <a href="?tab={{ key }}" {% if key == tab %}class="current"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>
+
+{% if bookings %}
+  <table class="data">
+    <tr><th>№</th><th>Обладнання</th><th>Період</th><th>Вартість</th><th>Статус</th><th></th></tr>
+    {% for b in bookings %}
+      <tr>
+        <td><a href="{% url 'bookings:detail' b.pk %}">{{ b.pk }}</a></td>
+        <td>{{ b.unit.equipment_type }}<br><span class="muted">Інв. № {{ b.unit.inventory_number }}</span></td>
+        <td>{{ b.start_date|date:"d.m.Y" }} — {{ b.end_date|date:"d.m.Y" }}</td>
+        <td>{{ b.total_price }} грн</td>
+        <td>{{ b.get_status_display }}</td>
+        <td>
+          {% if b.can_cancel %}
+            {% include "bookings/includes/cancel_button.html" with booking=b next=request.get_full_path %}
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+  </table>
+{% elif tab == "active" %}
+  <p>У вас немає поточних бронювань. <a href="{% url 'catalog:list' %}">Перейти до каталогу</a></p>
+{% else %}
+  <p>Архів порожній.</p>
+{% endif %}
+{% endblock %}

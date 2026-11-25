@@ -1,0 +1,7 @@
+{# Кнопка скасування заявки. Параметри: booking, next — куди повернутися після дії. #}
+<form class="inline" method="post" action="{% url 'bookings:cancel' booking.pk %}"
+      onsubmit="return confirm('Скасувати заявку № {{ booking.pk }}?');">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ next }}">
+  <button type="submit" class="danger">Скасувати</button>
+</form>

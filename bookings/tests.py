@@ -227,3 +227,68 @@ class BookingViewTests(TestCase):
         for user, expected in ((self.client_user, 200), (self.manager, 200), (self.other, 403)):
             self.client.force_login(user)
             self.assertEqual(self.client.get(url).status_code, expected, user.username)
+
+
+class MyBookingsTests(TestCase):
+    """Сторінка «Мої бронювання» та скасування заявки."""
+
+    def setUp(self):
+        _, self.unit1, self.unit2, self.client_user, self.other, self.manager = make_fixture()
+        self.mine = create_booking(client=self.client_user, unit=self.unit1, start=d(1), end=d(3))
+        self.foreign = create_booking(client=self.other, unit=self.unit2, start=d(1), end=d(3))
+        self.my_url = reverse("bookings:my")
+
+    def cancel(self, booking, **extra):
+        return self.client.post(reverse("bookings:cancel", args=[booking.pk]), extra)
+
+    def test_list_shows_only_own_bookings(self):
+        self.client.force_login(self.client_user)
+        response = self.client.get(self.my_url)
+        self.assertEqual(list(response.context["bookings"]), [self.mine])
+
+    def test_cancelled_booking_moves_to_archive(self):
+        self.client.force_login(self.client_user)
+        self.cancel(self.mine)
+        self.assertEqual(list(self.client.get(self.my_url).context["bookings"]), [])
+        archive = self.client.get(self.my_url, {"tab": "archive"}).context["bookings"]
+        self.assertEqual(list(archive), [self.mine])
+
+    def test_owner_can_cancel(self):
+        self.client.force_login(self.client_user)
+        response = self.cancel(self.mine)
+        self.assertRedirects(response, self.my_url)
+        self.mine.refresh_from_db()
+        self.assertEqual(self.mine.status, Booking.Status.CANCELLED)
+        self.assertTrue(self.mine.events.filter(kind=BookingEvent.Kind.CANCELLED).exists())
+
+    def test_cannot_cancel_foreign_booking(self):
+        self.client.force_login(self.client_user)
+        self.assertEqual(self.cancel(self.foreign).status_code, 403)
+        self.foreign.refresh_from_db()
+        self.assertEqual(self.foreign.status, Booking.Status.PENDING)
+
+    def test_cancel_requires_post(self):
+        self.client.force_login(self.client_user)
+        url = reverse("bookings:cancel", args=[self.mine.pk])
+        self.assertEqual(self.client.get(url).status_code, 405)
+
+    def test_cannot_cancel_after_issue(self):
+        change_status(self.mine, Booking.Status.CONFIRMED, actor=self.manager)
+        change_status(self.mine, Booking.Status.ISSUED, actor=self.manager)
+        self.client.force_login(self.client_user)
+        response = self.cancel(self.mine, next=reverse("bookings:detail", args=[self.mine.pk]))
+        self.mine.refresh_from_db()
+        self.assertEqual(self.mine.status, Booking.Status.ISSUED)
+        self.assertContains(self.client.get(response.url), "недопустимий")
+
+    def test_cancel_button_hidden_after_issue(self):
+        change_status(self.mine, Booking.Status.CONFIRMED, actor=self.manager)
+        change_status(self.mine, Booking.Status.ISSUED, actor=self.manager)
+        self.client.force_login(self.client_user)
+        response = self.client.get(reverse("bookings:detail", args=[self.mine.pk]))
+        self.assertNotContains(response, "bookings/%d/cancel/" % self.mine.pk)
+
+    def test_external_next_ignored(self):
+        self.client.force_login(self.client_user)
+        response = self.cancel(self.mine, next="https://evil.example.com/")
+        self.assertRedirects(response, self.my_url)

@@ -13,6 +13,11 @@
   {% if user.is_manager %}<tr><th>Клієнт</th><td>{{ booking.client }}</td></tr>{% endif %}
 </table>
 
+{% if can_cancel %}
+  <p>{% include "bookings/includes/cancel_button.html" with next=request.get_full_path %}</p>
+{% endif %}
+{% if not user.is_manager %}<p><a href="{% url 'bookings:my' %}">← Мої бронювання</a></p>{% endif %}
+
 <h2>Історія</h2>
 <table class="data">
   <tr><th>Час</th><th>Подія</th><th>Хто</th><th>Коментар</th></tr>

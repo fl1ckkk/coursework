@@ -22,6 +22,11 @@
     .helptext { display: block; color: #555; font-size: .9rem; }
     table.data { border-collapse: collapse; width: 100%; }
     table.data th, table.data td { border-bottom: 1px solid #ddd; padding: .4rem; text-align: left; }
+    .messages li.error { background: #fde8ea; }
+    .tabs { display: flex; gap: 1rem; margin-bottom: 1rem; }
+    .tabs a.current { font-weight: 600; text-decoration: none; color: inherit; }
+    button.danger { padding: .3rem .7rem; border: 1px solid #b00020; border-radius: 4px; background: #fff;
+      color: #b00020; font: inherit; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -29,6 +34,7 @@
   <a href="{% url 'catalog:list' %}"><strong>Оренда обладнання</strong></a>
   <nav>
     {% if user.is_authenticated %}
+      {% if not user.is_manager %}<a href="{% url 'bookings:my' %}">Мої бронювання</a> ·{% endif %}
       {{ user }} ({{ user.get_role_display }})
       <form class="inline" method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">Вийти</button></form>
     {% else %}
@@ -38,7 +44,7 @@
 </header>
 <main>
   {% if messages %}
-    <ul class="messages">{% for m in messages %}<li>{{ m }}</li>{% endfor %}</ul>
+    <ul class="messages">{% for m in messages %}<li class="{{ m.tags }}">{{ m }}</li>{% endfor %}</ul>
   {% endif %}
   {% block content %}{% endblock %}
 </main>
