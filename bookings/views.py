@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -15,6 +15,8 @@ from .models import Booking
 from .services import (
     BookingError,
     allowed_transitions,
+    can_extend,
+    extend_booking,
     change_status,
     create_booking,
     current_tariff,
@@ -108,6 +110,31 @@ def booking_cancel(request, pk):
 
 
 @login_required
+@require_POST
+def booking_extend(request, pk):
+    """Продовження оренди клієнтом-власником або менеджером. Лише POST."""
+    booking = get_object_or_404(Booking, pk=pk)
+    if not (request.user.is_manager or booking.client_id == request.user.pk):
+        raise PermissionDenied
+    try:
+        new_end = date.fromisoformat(request.POST.get("new_end", ""))
+    except ValueError:
+        messages.error(request, "Вкажіть нову дату повернення.")
+    else:
+        try:
+            extend_booking(booking, new_end, actor=request.user)
+        except BookingError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(
+                request,
+                f"Оренду продовжено до {booking.end_date:%d.%m.%Y}. "
+                f"Нова вартість: {booking.total_price} грн.",
+            )
+    return redirect("bookings:detail", pk=pk)
+
+
+@login_required
 def booking_detail(request, pk):
     """Сторінка заявки. Бачить лише її власник або менеджер."""
     booking = get_object_or_404(
@@ -116,7 +143,12 @@ def booking_detail(request, pk):
     if not (request.user.is_manager or booking.client_id == request.user.pk):
         raise PermissionDenied
     events = booking.events.select_related("actor")
-    context = {"booking": booking, "events": events}
+    context = {
+        "booking": booking,
+        "events": events,
+        "can_extend": can_extend(booking, request.user),
+        "extend_min": booking.end_date + timedelta(days=1),
+    }
     if request.user.is_manager:
         # Менеджер бачить ті самі кнопки дій, що й у панелі.
         context["booking"] = mark(booking, request.user, date.today())

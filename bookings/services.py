@@ -23,6 +23,9 @@ class BookingConflict(BookingError):
     """Екземпляр уже зайнятий на частину періоду."""
 
 
+# Доплата за кожну добу запізнення = ціна доби із заявки × коефіцієнт.
+LATE_FEE_MULTIPLIER = Decimal("1.5")
+
 # SQLSTATE помилки PostgreSQL «deadlock detected».
 DEADLOCK_DETECTED = "40P01"
 CREATE_ATTEMPTS = 3
@@ -161,10 +164,27 @@ def check_transition(booking: Booking, new_status: str, actor, today: date | Non
         raise BookingError("Цю дію може виконати лише менеджер.")
     if who == "owner_or_manager" and not (is_manager or booking.client_id == actor.pk):
         raise BookingError("Можна скасувати лише власне бронювання.")
-    if new_status == Booking.Status.ISSUED and booking.start_date > today:
-        raise BookingError(
-            f"Видати можна не раніше дати початку оренди ({booking.start_date:%d.%m.%Y})."
-        )
+    if new_status == Booking.Status.ISSUED:
+        if booking.start_date > today:
+            raise BookingError(
+                f"Видати можна не раніше дати початку оренди ({booking.start_date:%d.%m.%Y})."
+            )
+        # Фізично екземпляр один: поки попередню оренду не повернули, видати його не можна.
+        previous = unreturned_booking(booking)
+        if previous is not None:
+            raise BookingError(
+                f"Екземпляр ще не повернули після заявки № {previous.pk} "
+                f"(мали повернути {previous.end_date:%d.%m.%Y})."
+            )
+
+
+def unreturned_booking(booking: Booking) -> Booking | None:
+    """Інше бронювання того самого екземпляра, за яким обладнання видано й не повернуто."""
+    return (
+        Booking.objects.filter(unit_id=booking.unit_id, status=Booking.Status.ISSUED)
+        .exclude(pk=booking.pk)
+        .first()
+    )
 
 
 def allowed_transitions(booking: Booking, actor, today: date | None = None) -> set[str]:
@@ -197,8 +217,104 @@ def change_status(
         locked = Booking.objects.select_for_update().get(pk=booking.pk)
         check_transition(locked, new_status, actor, today)
         locked.status = new_status
-        locked.save(update_fields=["status", "updated_at"])
+        fields = ["status", "updated_at"]
+        if new_status == Booking.Status.RETURNED:
+            locked.returned_on = today or date.today()
+            locked.late_days, locked.late_fee = calculate_late_fee(
+                locked.price_per_day, locked.end_date, locked.returned_on
+            )
+            fields += ["returned_on", "late_days", "late_fee"]
+            if locked.late_days:
+                late_note = f"Запізнення {locked.late_days} дн., доплата {locked.late_fee} грн."
+                comment = f"{comment} {late_note}".strip()
+        locked.save(update_fields=fields)
         BookingEvent.objects.create(booking=locked, kind=new_status, actor=actor, comment=comment)
 
-    booking.status, booking.updated_at = locked.status, locked.updated_at
+    for field in fields:
+        setattr(booking, field, getattr(locked, field))
+    return booking
+
+
+def calculate_late_fee(price_per_day: Decimal, end: date, returned_on: date) -> tuple[int, Decimal]:
+    """Діб запізнення та доплата за них.
+
+    Повернення в день end_date або раніше — без доплати. Кожна доба після
+    end_date оплачується за ціною із заявки з коефіцієнтом LATE_FEE_MULTIPLIER.
+    Дострокове повернення не зменшує вартість оренди.
+    """
+    late_days = max(0, (returned_on - end).days)
+    fee = (price_per_day * LATE_FEE_MULTIPLIER * late_days).quantize(Decimal("0.01"))
+    return late_days, fee
+
+
+def check_extension(booking: Booking, new_end: date | None, actor, today: date | None = None) -> None:
+    """Правила продовження оренди. Інакше — BookingError.
+
+    new_end=None перевіряє лише, чи можна продовжувати взагалі (для показу кнопки).
+    """
+    today = today or date.today()
+    if not (getattr(actor, "is_manager", False) or booking.client_id == actor.pk):
+        raise BookingError("Можна продовжити лише власне бронювання.")
+    if booking.status not in Booking.ACTIVE_STATUSES:
+        raise BookingError("Продовжити можна лише підтверджене або видане бронювання.")
+    if today > booking.end_date:
+        raise BookingError(
+            "Термін оренди вже минув, продовжити не можна. Поверніть обладнання — "
+            "за прострочені доби нараховується доплата."
+        )
+    if new_end is not None and new_end <= booking.end_date:
+        raise BookingError(
+            f"Нова дата повернення має бути пізніше за поточну ({booking.end_date:%d.%m.%Y})."
+        )
+
+
+def can_extend(booking: Booking, actor, today: date | None = None) -> bool:
+    try:
+        check_extension(booking, None, actor, today)
+    except BookingError:
+        return False
+    return True
+
+
+def extend_booking(booking: Booking, new_end: date, *, actor, today: date | None = None) -> Booking:
+    """Продовжує оренду до new_end.
+
+    Нова дата перевіряється на зайнятість тим самим обмеженням
+    booking_no_overlap_per_unit, що й нове бронювання (з урахуванням
+    технічної перерви). Доплата рахується за ціною доби, зафіксованою в заявці.
+    """
+    for attempt in range(1, CREATE_ATTEMPTS + 1):
+        try:
+            return _extend_once(booking, new_end, actor, today)
+        except OperationalError as exc:
+            if not is_deadlock(exc) or attempt == CREATE_ATTEMPTS:
+                raise
+        except IntegrityError as exc:
+            if "booking_no_overlap_per_unit" in str(exc):
+                raise BookingConflict(
+                    f"Продовжити до {new_end:%d.%m.%Y} неможливо: екземпляр уже заброньовано "
+                    "іншим клієнтом на частину цього періоду (з урахуванням технічної перерви)."
+                ) from exc
+            raise
+
+
+def _extend_once(booking: Booking, new_end: date, actor, today: date | None) -> Booking:
+    with transaction.atomic():
+        locked = Booking.objects.select_for_update().get(pk=booking.pk)
+        check_extension(locked, new_end, actor, today)
+        old_end, old_total = locked.end_date, locked.total_price
+        locked.end_date = new_end
+        locked.total_price = calculate_price(locked.price_per_day, locked.start_date, new_end)
+        locked.save(update_fields=["end_date", "total_price", "updated_at"])
+        BookingEvent.objects.create(
+            booking=locked,
+            kind=BookingEvent.Kind.EXTENDED,
+            actor=actor,
+            comment=(
+                f"Дата повернення {old_end:%d.%m.%Y} → {new_end:%d.%m.%Y}, "
+                f"+{(new_end - old_end).days} дн., доплата {locked.total_price - old_total} грн."
+            ),
+        )
+    booking.end_date, booking.total_price = locked.end_date, locked.total_price
+    booking.updated_at = locked.updated_at
     return booking

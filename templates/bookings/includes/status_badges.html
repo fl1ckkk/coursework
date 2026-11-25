@@ -1,3 +1,4 @@
 {% if booking.is_issue_today %}<span class="badge today">видача сьогодні</span>{% endif %}
 {% if booking.is_not_picked_up %}<span class="badge warn">не забрали</span>{% endif %}
 {% if booking.is_overdue %}<span class="badge overdue">прострочено</span>{% endif %}
+{% if booking.blocking %}<span class="badge blocked" title="Заявка № {{ booking.blocking.pk }}, мали повернути {{ booking.blocking.end_date|date:'d.m.Y' }}">екземпляр ще не повернули</span>{% endif %}

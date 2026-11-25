@@ -1,35 +1,42 @@
 {% extends "base.html" %}
 {% block title %}Мої бронювання{% endblock %}
 {% block content %}
-<h1>Мої бронювання</h1>
+<div class="page-head"><h1>Мої бронювання</h1></div>
 
-<nav class="tabs">
+<nav class="tabs" aria-label="Фільтр бронювань">
   {% for key, label in tabs %}
-    <a href="?tab={{ key }}" {% if key == tab %}class="current"{% endif %}>{{ label }}</a>
+    <a href="?tab={{ key }}" {% if key == tab %}aria-current="page"{% endif %}>{{ label }}</a>
   {% endfor %}
 </nav>
 
 {% if bookings %}
-  <table class="data">
-    <tr><th>№</th><th>Обладнання</th><th>Період</th><th>Вартість</th><th>Статус</th><th></th></tr>
-    {% for b in bookings %}
-      <tr>
-        <td><a href="{% url 'bookings:detail' b.pk %}">{{ b.pk }}</a></td>
-        <td>{{ b.unit.equipment_type }}<br><span class="muted">Інв. № {{ b.unit.inventory_number }}</span></td>
-        <td>{{ b.start_date|date:"d.m.Y" }} — {{ b.end_date|date:"d.m.Y" }}</td>
-        <td>{{ b.total_price }} грн</td>
-        <td>{{ b.get_status_display }}</td>
-        <td>
-          {% if b.can_cancel %}
-            {% include "bookings/includes/cancel_button.html" with booking=b next=request.get_full_path %}
-          {% endif %}
-        </td>
-      </tr>
-    {% endfor %}
-  </table>
+  <div class="table-wrap">
+    <table class="data responsive">
+      <thead><tr><th>№</th><th>Обладнання</th><th>Період</th><th>Вартість</th><th>Статус</th><th><span class="sr-only">Дії</span></th></tr></thead>
+      <tbody>
+        {% for b in bookings %}
+          <tr>
+            <td data-label="Заявка" class="nowrap"><a href="{% url 'bookings:detail' b.pk %}">№ {{ b.pk }}</a></td>
+            <td data-label="Обладнання">{{ b.unit.equipment_type }}<span class="sub">Інв. № {{ b.unit.inventory_number }}</span></td>
+            <td data-label="Період" class="nowrap">{{ b.start_date|date:"d.m.Y" }} — {{ b.end_date|date:"d.m.Y" }}</td>
+            <td data-label="Вартість" class="nowrap">{{ b.amount_due }} грн</td>
+            <td data-label="Статус">{% include "bookings/includes/status.html" with booking=b %}</td>
+            <td>
+              {% if b.can_cancel %}
+                {% include "bookings/includes/cancel_button.html" with booking=b next=request.get_full_path %}
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 {% elif tab == "active" %}
-  <p>У вас немає поточних бронювань. <a href="{% url 'catalog:list' %}">Перейти до каталогу</a></p>
+  <div class="card empty-state">
+    <p><strong>У вас немає поточних бронювань.</strong></p>
+    <p><a class="btn btn-primary" href="{% url 'catalog:list' %}">Перейти до каталогу</a></p>
+  </div>
 {% else %}
-  <p>Архів порожній.</p>
+  <div class="card empty-state">Архів порожній.</div>
 {% endif %}
 {% endblock %}

@@ -1,36 +1,93 @@
 {% extends "base.html" %}
 {% block title %}Заявка № {{ booking.pk }}{% endblock %}
 {% block content %}
-<h1>Заявка № {{ booking.pk }}</h1>
-
-<table class="data">
-  <tr><th>Обладнання</th><td><a href="{% url 'catalog:detail' booking.unit.equipment_type.pk %}">{{ booking.unit.equipment_type }}</a></td></tr>
-  <tr><th>Екземпляр</th><td>Інв. № {{ booking.unit.inventory_number }}</td></tr>
-  <tr><th>Період</th><td>{{ booking.start_date|date:"d.m.Y" }} — {{ booking.end_date|date:"d.m.Y" }} (діб: {{ booking.days }})</td></tr>
-  <tr><th>Ціна за добу</th><td>{{ booking.price_per_day }} грн</td></tr>
-  <tr><th>Вартість</th><td><strong>{{ booking.total_price }} грн</strong></td></tr>
-  <tr><th>Статус</th><td>{{ booking.get_status_display }} {% include "bookings/includes/status_badges.html" %}</td></tr>
-  {% if user.is_manager %}<tr><th>Клієнт</th><td>{{ booking.client }}</td></tr>{% endif %}
-</table>
-
 {% if user.is_manager %}
-  {% include "bookings/includes/manager_actions.html" with next=request.get_full_path %}
-  <p><a href="{% url 'manage:list' %}">← Заявки</a></p>
-{% elif can_cancel %}
-  <p>{% include "bookings/includes/cancel_button.html" with next=request.get_full_path %}</p>
+  <a class="back" href="{% url 'manage:list' %}">← Заявки</a>
+{% else %}
+  <a class="back" href="{% url 'bookings:my' %}">← Мої бронювання</a>
 {% endif %}
-{% if not user.is_manager %}<p><a href="{% url 'bookings:my' %}">← Мої бронювання</a></p>{% endif %}
 
-<h2>Історія</h2>
-<table class="data">
-  <tr><th>Час</th><th>Подія</th><th>Хто</th><th>Коментар</th></tr>
-  {% for e in events %}
-    <tr>
-      <td>{{ e.created_at|date:"d.m.Y H:i" }}</td>
-      <td>{{ e.get_kind_display }}</td>
-      <td>{{ e.actor }}</td>
-      <td>{{ e.comment }}</td>
-    </tr>
-  {% endfor %}
-</table>
+<div class="page-head">
+  <div>
+    <h1>Заявка № {{ booking.pk }}</h1>
+    <p>{% include "bookings/includes/status.html" %} {% include "bookings/includes/status_badges.html" %}</p>
+  </div>
+</div>
+
+<div class="two-col">
+  <div class="stack">
+    <section class="table-wrap">
+      <table class="data kv">
+        <tr><th scope="row">Обладнання</th><td><a href="{% url 'catalog:detail' booking.unit.equipment_type.pk %}">{{ booking.unit.equipment_type }}</a></td></tr>
+        <tr><th scope="row">Екземпляр</th><td>Інв. № {{ booking.unit.inventory_number }}</td></tr>
+        <tr><th scope="row">Період</th><td>{{ booking.start_date|date:"d.m.Y" }} — {{ booking.end_date|date:"d.m.Y" }} <span class="muted">(діб: {{ booking.days }})</span></td></tr>
+        {% if booking.buffer_days %}
+          <tr><th scope="row">Технічна перерва</th><td>{{ booking.buffer_days }} дн. після повернення</td></tr>
+        {% endif %}
+        {% if booking.returned_on %}
+          <tr><th scope="row">Фактично повернено</th><td>{{ booking.returned_on|date:"d.m.Y" }}{% if booking.late_days %} <span class="badge overdue">запізнення {{ booking.late_days }} дн.</span>{% endif %}</td></tr>
+        {% endif %}
+        {% if user.is_manager %}
+          <tr><th scope="row">Клієнт</th><td>{{ booking.client }}{% if booking.client.phone %}<span class="sub">{{ booking.client.phone }}</span>{% endif %}</td></tr>
+        {% endif %}
+      </table>
+    </section>
+
+    <section class="card">
+      <h2 style="margin-top:0">Історія</h2>
+      <ol class="timeline">
+        {% for e in events %}
+          <li>
+            <strong>{{ e.get_kind_display }}</strong> <span class="muted">· {{ e.actor }}</span>
+            <div class="when">{{ e.created_at|date:"d.m.Y H:i" }}</div>
+            {% if e.comment %}<div>{{ e.comment }}</div>{% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    </section>
+  </div>
+
+  <aside class="stack">
+    <section class="card">
+      <h2 style="margin-top:0">Вартість</h2>
+      <div class="summary"><span>Ціна за добу</span><span>{{ booking.price_per_day }} грн</span></div>
+      <div class="summary"><span>Оренда ({{ booking.days }} діб)</span><span>{{ booking.total_price }} грн</span></div>
+      {% if booking.late_fee %}
+        <div class="summary"><span>Доплата за запізнення</span><span>{{ booking.late_fee }} грн</span></div>
+      {% endif %}
+      <div class="summary total"><span>Разом</span><span>{{ booking.amount_due }} грн</span></div>
+    </section>
+
+    {% if can_extend %}
+      <section class="card">
+        <h2 style="margin-top:0">Продовжити оренду</h2>
+        <form method="post" action="{% url 'bookings:extend' booking.pk %}">
+          {% csrf_token %}
+          <div class="form-row">
+            <label for="new_end">Нова дата повернення</label>
+            <input type="date" id="new_end" name="new_end" required min="{{ extend_min|date:'Y-m-d' }}">
+            <span class="helptext">Доплата за кожну додаткову добу — {{ booking.price_per_day }} грн (ціна із заявки).
+              Дати перевіряються на зайнятість так само, як нове бронювання.</span>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">Продовжити</button>
+        </form>
+      </section>
+    {% endif %}
+
+    {% if user.is_manager %}
+      {% if booking.allowed or booking.blocking %}
+        <section class="card">
+          <h2 style="margin-top:0">Дії</h2>
+          {% include "bookings/includes/manager_actions.html" with next=request.get_full_path %}
+        </section>
+      {% endif %}
+    {% elif can_cancel %}
+      <section class="card">
+        <h2 style="margin-top:0">Скасування</h2>
+        <p class="small muted">Скасувати можна до видачі обладнання. Дати знову стануть вільними.</p>
+        {% include "bookings/includes/cancel_button.html" with next=request.get_full_path %}
+      </section>
+    {% endif %}
+  </aside>
+</div>
 {% endblock %}

@@ -13,6 +13,7 @@ from django.db import transaction
 
 from accounts.models import User
 from bookings.models import Booking, BookingEvent
+from bookings.services import calculate_late_fee
 from catalog.models import EquipmentType, EquipmentUnit, Tariff
 
 DEMO_PASSWORD = "demo-pass-123"
@@ -82,7 +83,8 @@ class Command(BaseCommand):
             ("INV-04-001", client1, 4, 7, Booking.Status.CONFIRMED),    # майбутня
             ("INV-03-001", client2, -3, 2, Booking.Status.ISSUED),      # видано, в строк
             ("INV-05-001", client1, -7, -2, Booking.Status.ISSUED),     # прострочено
-            ("INV-01-002", client2, -14, -10, Booking.Status.RETURNED), # архів
+            ("INV-05-001", client2, 0, 2, Booking.Status.CONFIRMED),    # не можна видати: попередню не повернули
+            ("INV-01-002", client2, -14, -10, Booking.Status.RETURNED), # архів, повернено із запізненням
         ]
         for inventory, client, start, end, status in demo:
             unit = EquipmentUnit.objects.get(inventory_number=inventory)
@@ -95,9 +97,19 @@ class Command(BaseCommand):
                 status=status,
                 price_per_day=price,
                 total_price=price * (end - start),
+                buffer_days=unit.equipment_type.turnaround_days,
             )
             BookingEvent.objects.create(booking=booking, kind=BookingEvent.Kind.CREATED, actor=client)
             if status in (Booking.Status.ISSUED, Booking.Status.RETURNED):
                 BookingEvent.objects.create(booking=booking, kind=BookingEvent.Kind.ISSUED, actor=manager)
             if status == Booking.Status.RETURNED:
-                BookingEvent.objects.create(booking=booking, kind=BookingEvent.Kind.RETURNED, actor=manager)
+                # Повернули на 2 доби пізніше: доплата за ті самі правила, що й у services.
+                booking.returned_on = booking.end_date + timedelta(days=2)
+                booking.late_days, booking.late_fee = calculate_late_fee(
+                    price, booking.end_date, booking.returned_on
+                )
+                booking.save()
+                BookingEvent.objects.create(
+                    booking=booking, kind=BookingEvent.Kind.RETURNED, actor=manager,
+                    comment=f"Запізнення {booking.late_days} дн., доплата {booking.late_fee} грн.",
+                )

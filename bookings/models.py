@@ -56,6 +56,12 @@ class Booking(models.Model):
     # Екземпляр зайнятий до end_date + buffer_days. Знімок потрібен, щоб зміна
     # налаштування типу не зробила недійсними вже створені бронювання.
     buffer_days = models.PositiveSmallIntegerField("технічна перерва, днів", default=0, db_default=0)
+    # Фактичне повернення. Заповнюється, коли менеджер приймає обладнання.
+    returned_on = models.DateField("фактична дата повернення", null=True, blank=True)
+    late_days = models.PositiveSmallIntegerField("діб запізнення", default=0, db_default=0)
+    late_fee = models.DecimalField(
+        "доплата за запізнення, грн", max_digits=12, decimal_places=2, default=0, db_default=0
+    )
     created_at = models.DateTimeField("створено", auto_now_add=True)
     updated_at = models.DateTimeField("змінено", auto_now=True)
 
@@ -70,6 +76,9 @@ class Booking(models.Model):
             ),
             models.CheckConstraint(
                 condition=Q(total_price__gte=0), name="booking_total_non_negative"
+            ),
+            models.CheckConstraint(
+                condition=Q(late_fee__gte=0), name="booking_late_fee_non_negative"
             ),
             # Головне бізнес-правило: активні бронювання одного екземпляра
             # не можуть перетинатися в часі. Перевіряє сама СКБД, тому правило
@@ -104,6 +113,11 @@ class Booking(models.Model):
         return (self.end_date - self.start_date).days
 
     @property
+    def amount_due(self):
+        """Підсумок до сплати: вартість оренди плюс доплата за запізнення."""
+        return self.total_price + self.late_fee
+
+    @property
     def busy_until(self):
         """Перший день, коли екземпляр знову вільний (повернення + технічна перерва)."""
         return self.end_date + timedelta(days=self.buffer_days)
@@ -117,6 +131,7 @@ class BookingEvent(models.Model):
 
     class Kind(models.TextChoices):
         CREATED = "created", "Створено й підтверджено"
+        EXTENDED = "extended", "Продовжено"
         CANCELLED = "cancelled", "Скасовано"
         ISSUED = "issued", "Видано"
         RETURNED = "returned", "Повернено"

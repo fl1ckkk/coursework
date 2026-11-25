@@ -1,19 +1,23 @@
 {% extends "base.html" %}
 {% block title %}Вхід{% endblock %}
 {% block content %}
-<h1>Вхід</h1>
-<form method="post">
-  {% csrf_token %}
-  {{ form.non_field_errors }}
-  {% for field in form %}
-    <div class="form-row">
-      {{ field.label_tag }}
-      {{ field }}
-      {{ field.errors }}
-    </div>
-  {% endfor %}
-  <input type="hidden" name="next" value="{{ next }}">
-  <button type="submit" class="primary">Увійти</button>
-</form>
-<p>Немає облікового запису? <a href="{% url 'register' %}">Зареєструватися</a></p>
+<div class="card auth-card">
+  <h1>Вхід</h1>
+  <form method="post">
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <ul class="errorlist nonfield">{% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% for field in form %}
+      <div class="form-row">
+        {{ field.label_tag }}
+        {{ field }}
+        {{ field.errors }}
+      </div>
+    {% endfor %}
+    <input type="hidden" name="next" value="{{ next }}">
+    <button type="submit" class="btn btn-primary btn-block">Увійти</button>
+  </form>
+  <p class="small" style="margin-top:1rem">Немає облікового запису? <a href="{% url 'register' %}">Зареєструватися</a></p>
+</div>
 {% endblock %}

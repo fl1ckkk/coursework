@@ -1,38 +1,88 @@
 {% extends "base.html" %}
 {% block title %}{{ item.name }}{% endblock %}
 {% block content %}
-<p><a href="{% url 'catalog:list' %}">← До каталогу</a></p>
-<h1>{{ item.name }}</h1>
-<p class="muted">{{ item.category }}</p>
-<p>{{ item.description|linebreaksbr }}</p>
-{% if tariff %}
-  <p class="price">{{ tariff.price_per_day }} грн / доба</p>
-{% endif %}
-{% if item.turnaround_days %}
-  <p class="muted">Після кожної оренди екземпляр {{ item.turnaround_days }} дн. на технічному обслуговуванні,
-  тому наступна оренда може початися не раніше ніж через {{ item.turnaround_days }} дн. після повернення.</p>
-{% endif %}
+<a class="back" href="{% url 'catalog:list' %}">← До каталогу</a>
 
-<h2>Екземпляри</h2>
-{% for unit in units %}
-  <div class="card">
-    <strong>Інв. № {{ unit.inventory_number }}</strong>
-    {% if unit.busy_periods %}
-      <div>Зайнято:</div>
-      <ul>
-        {% for b in unit.busy_periods %}
-          <li>{{ b.start_date|date:"d.m.Y" }} — {{ b.end_date|date:"d.m.Y" }}
-            <span class="muted">(вільний з {{ b.busy_until|date:"d.m.Y" }})</span></li>
-        {% endfor %}
-      </ul>
+<div class="two-col">
+  <section>
+    <span class="chip">{{ item.category }}</span>
+    <h1 style="margin-top:.5rem">{{ item.name }}</h1>
+    {% if item.description %}<p>{{ item.description|linebreaksbr }}</p>{% endif %}
+  </section>
+  <aside class="card">
+    {% if tariff %}
+      <div class="price-lg">{{ tariff.price_per_day }} грн <span class="muted small">/ доба</span></div>
+      <p class="muted small">Тарифікація подобова; день повернення не оплачується.</p>
     {% else %}
-      <div class="muted">Вільний на всі дати.</div>
+      <p class="muted">Ціну ще не задано, бронювання недоступне.</p>
     {% endif %}
-    {% if tariff and not user.is_manager %}
-      <a class="button" href="{% url 'bookings:create' item.pk %}?unit={{ unit.pk }}">Забронювати</a>
+    {% if item.turnaround_days %}
+      <p class="small">Після кожної оренди екземпляр {{ item.turnaround_days }} дн. на технічному обслуговуванні,
+      тому наступна оренда може початися не раніше ніж через {{ item.turnaround_days }} дн. після повернення.</p>
     {% endif %}
-  </div>
+    <p class="small muted">Доступних екземплярів: {{ units|length }}</p>
+  </aside>
+</div>
+
+<div class="page-head" style="margin-top:2rem">
+  <h2 style="margin:0">Календар доступності</h2>
+  <nav class="month-nav" aria-label="Перемикання місяців">
+    {% if prev_offset is not None %}<a class="btn btn-sm" href="?m={{ prev_offset }}">← Раніше</a>{% endif %}
+    {% if next_offset is not None %}<a class="btn btn-sm" href="?m={{ next_offset }}">Пізніше →</a>{% endif %}
+  </nav>
+</div>
+<div class="legend">
+  <span><i></i> вільно</span>
+  <span><i class="busy"></i> зайнято</span>
+  <span><i class="buffer"></i> технічна перерва</span>
+</div>
+
+{% for unit in units %}
+  <section class="card unit-card" aria-labelledby="unit-{{ unit.pk }}">
+    <div class="unit-head">
+      <h3 id="unit-{{ unit.pk }}" style="margin:0">Інв. № {{ unit.inventory_number }}</h3>
+      {% if tariff and not user.is_manager %}
+        <a class="btn btn-primary btn-sm" href="{% url 'bookings:create' item.pk %}?unit={{ unit.pk }}">Забронювати</a>
+      {% endif %}
+    </div>
+
+    <div class="calendars">
+      {% for month in unit.months %}
+        <table class="calendar">
+          <caption>{{ month.title }}</caption>
+          <thead><tr>{% for wd in weekdays %}<th scope="col">{{ wd }}</th>{% endfor %}</tr></thead>
+          <tbody>
+            {% for week in month.weeks %}
+              <tr>
+                {% for day in week %}
+                  {% if day %}
+                    <td class="{{ day.state }}{% if day.is_today %} today{% endif %}" title="{{ day.title }}">{{ day.date.day }}</td>
+                  {% else %}
+                    <td class="empty"></td>
+                  {% endif %}
+                {% endfor %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endfor %}
+    </div>
+
+    {% if unit.busy_periods %}
+      <details style="margin-top:.75rem">
+        <summary class="small">Зайняті періоди списком</summary>
+        <ul class="small">
+          {% for b in unit.busy_periods %}
+            <li>{{ b.start_date|date:"d.m.Y" }} — {{ b.end_date|date:"d.m.Y" }}
+              <span class="muted">(вільний з {{ b.busy_until|date:"d.m.Y" }})</span></li>
+          {% endfor %}
+        </ul>
+      </details>
+    {% else %}
+      <p class="muted small" style="margin:.75rem 0 0">Вільний на всі дати.</p>
+    {% endif %}
+  </section>
 {% empty %}
-  <p>Зараз немає доступних екземплярів.</p>
+  <div class="card empty-state">Зараз немає доступних екземплярів.</div>
 {% endfor %}
 {% endblock %}

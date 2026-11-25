@@ -10,6 +10,7 @@ from functools import wraps
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
@@ -17,7 +18,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from .models import Booking
-from .services import BookingError, allowed_transitions, change_status
+from .services import BookingError, allowed_transitions, change_status, unreturned_booking
 
 # Вкладки: ключ -> (назва, статуси, сортування).
 TABS = {
@@ -29,6 +30,9 @@ TABS = {
         ("-updated_at",),
     ),
 }
+
+# Заявок на одній сторінці панелі (див. висновки навантажувального тестування).
+PAGE_SIZE = 20
 
 # Дія з адреси -> новий статус і повідомлення про успіх.
 ACTIONS = {
@@ -58,6 +62,12 @@ def mark(booking: Booking, user, today: date) -> Booking:
     booking.is_not_picked_up = booking.status == Booking.Status.CONFIRMED and booking.start_date < today
     # end_date — день повернення: прострочено, якщо він уже минув.
     booking.is_overdue = booking.status == Booking.Status.ISSUED and booking.end_date < today
+    # Для заявок, які вже час видавати: чи повернули екземпляр після попередньої оренди.
+    booking.blocking = (
+        unreturned_booking(booking)
+        if booking.status == Booking.Status.CONFIRMED and booking.start_date <= today
+        else None
+    )
     return booking
 
 
@@ -97,16 +107,24 @@ def manage_list(request):
         bookings = bookings.filter(start_date__lte=date_to)
 
     counts = {key: bookings.filter(status__in=st).count() for key, (_, st, _) in TABS.items()}
-    rows = [mark(b, request.user, today) for b in bookings.filter(status__in=statuses).order_by(*ordering)]
+    page = Paginator(bookings.filter(status__in=statuses).order_by(*ordering), PAGE_SIZE).get_page(
+        request.GET.get("page")
+    )
+    rows = [mark(b, request.user, today) for b in page]
     tabs = [(key, label, counts[key]) for key, (label, _, _) in TABS.items()]
 
     filters = request.GET.copy()
     filters.pop("tab", None)
+    filters.pop("page", None)
+    page_query = request.GET.copy()
+    page_query.pop("page", None)
     return render(
         request,
         "bookings/manage_list.html",
         {
             "bookings": rows,
+            "page": page,
+            "page_query": page_query.urlencode(),
             "tab": tab,
             "tabs": tabs,
             "query": query,

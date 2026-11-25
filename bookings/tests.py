@@ -20,6 +20,8 @@ from .services import (
     BookingConflict,
     BookingError,
     allowed_transitions,
+    calculate_late_fee,
+    extend_booking,
     calculate_price,
     change_status,
     create_booking,
@@ -251,7 +253,7 @@ class BookingViewTests(TestCase):
         self.client.force_login(self.client_user)
         response = self.client.get(self.url)
         self.assertContains(response, "Надіслати заявку")
-        self.assertContains(response, "500,00 грн / доба")
+        self.assertContains(response, "500,00 грн")
 
     def test_valid_post_creates_booking_and_redirects(self):
         self.client.force_login(self.client_user)
@@ -508,3 +510,187 @@ class TurnaroundTests(TestCase):
         response = self.client.get(reverse("catalog:detail", args=[self.etype.pk]))
         self.assertContains(response, "вільний з " + d(4).strftime("%d.%m.%Y"))
         self.assertContains(response, "1 дн. на технічному обслуговуванні")
+
+
+class ExtensionTests(TestCase):
+    """Продовження оренди: права, строки, перевірка зайнятості, доплата."""
+
+    def setUp(self):
+        _, self.unit1, self.unit2, self.client_user, self.other, self.manager = make_fixture()
+        self.booking = create_booking(client=self.client_user, unit=self.unit1, start=d(1), end=d(3))
+
+    def test_owner_extends_and_price_recalculated(self):
+        extend_booking(self.booking, d(5), actor=self.client_user)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.end_date, d(5))
+        self.assertEqual(self.booking.total_price, Decimal("2000.00"))  # 4 доби × 500
+        event = self.booking.events.get(kind=BookingEvent.Kind.EXTENDED)
+        self.assertIn("+2 дн.", event.comment)
+        self.assertIn("доплата 1000.00 грн", event.comment)
+
+    def test_price_uses_snapshot_not_new_tariff(self):
+        Tariff.objects.create(equipment_type=self.unit1.equipment_type, price_per_day=900, valid_from=d(-1))
+        extend_booking(self.booking, d(4), actor=self.client_user)
+        self.assertEqual(self.booking.total_price, Decimal("1500.00"))  # 3 × 500, а не × 900
+
+    def test_manager_can_extend_issued(self):
+        change_status(self.booking, Booking.Status.ISSUED, actor=self.manager, today=d(1))
+        extend_booking(self.booking, d(6), actor=self.manager, today=d(2))
+        self.assertEqual(self.booking.end_date, d(6))
+
+    def test_other_client_cannot_extend(self):
+        with self.assertRaises(BookingError):
+            extend_booking(self.booking, d(5), actor=self.other)
+
+    def test_new_end_must_be_later(self):
+        for new_end in (d(3), d(2)):
+            with self.assertRaises(BookingError):
+                extend_booking(self.booking, new_end, actor=self.client_user)
+
+    def test_cannot_extend_after_end_date(self):
+        with self.assertRaises(BookingError):
+            extend_booking(self.booking, d(6), actor=self.manager, today=d(4))
+
+    def test_cannot_extend_cancelled(self):
+        change_status(self.booking, Booking.Status.CANCELLED, actor=self.client_user)
+        with self.assertRaises(BookingError):
+            extend_booking(self.booking, d(5), actor=self.client_user)
+
+    def test_extension_conflict_with_next_booking(self):
+        """Часткове накладання продовження на чуже бронювання відхиляється, дані не змінюються."""
+        create_booking(client=self.other, unit=self.unit1, start=d(5), end=d(7))
+        with self.assertRaises(BookingConflict):
+            extend_booking(self.booking, d(6), actor=self.client_user)
+        self.booking.refresh_from_db()
+        self.assertEqual((self.booking.end_date, self.booking.total_price), (d(3), Decimal("1000.00")))
+        self.assertFalse(self.booking.events.filter(kind="extended").exists())
+        # Впритул до наступного бронювання (без технічної перерви) — можна.
+        extend_booking(self.booking, d(5), actor=self.client_user)
+
+    def test_extend_view(self):
+        self.client.force_login(self.client_user)
+        url = reverse("bookings:extend", args=[self.booking.pk])
+        response = self.client.post(url, {"new_end": d(4).isoformat()})
+        self.assertRedirects(response, reverse("bookings:detail", args=[self.booking.pk]))
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.end_date, d(4))
+        self.assertEqual(self.client.get(url).status_code, 405)
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.post(url, {"new_end": d(9).isoformat()}).status_code, 403)
+
+    def test_extend_view_shows_error(self):
+        self.client.force_login(self.client_user)
+        url = reverse("bookings:extend", args=[self.booking.pk])
+        response = self.client.post(url, {"new_end": "not-a-date"}, follow=True)
+        self.assertContains(response, "Вкажіть нову дату повернення")
+        response = self.client.post(url, {"new_end": d(2).isoformat()}, follow=True)
+        self.assertContains(response, "має бути пізніше")
+
+
+class LateReturnTests(TestCase):
+    """Повернення із запізненням і заборона видати неповернений екземпляр."""
+
+    def setUp(self):
+        _, self.unit1, _, self.client_user, self.other, self.manager = make_fixture()
+        self.first = create_booking(client=self.client_user, unit=self.unit1, start=d(1), end=d(3))
+        self.next = create_booking(client=self.other, unit=self.unit1, start=d(5), end=d(7))
+        change_status(self.first, Booking.Status.ISSUED, actor=self.manager, today=d(1))
+
+    def test_late_fee_formula(self):
+        self.assertEqual(calculate_late_fee(Decimal("500.00"), d(3), d(3)), (0, Decimal("0.00")))
+        self.assertEqual(calculate_late_fee(Decimal("500.00"), d(3), d(1)), (0, Decimal("0.00")))
+        self.assertEqual(calculate_late_fee(Decimal("500.00"), d(3), d(5)), (2, Decimal("1500.00")))
+
+    def test_on_time_return(self):
+        change_status(self.first, Booking.Status.RETURNED, actor=self.manager, today=d(3))
+        self.first.refresh_from_db()
+        self.assertEqual((self.first.returned_on, self.first.late_days, self.first.late_fee), (d(3), 0, 0))
+        self.assertEqual(self.first.amount_due, Decimal("1000.00"))
+
+    def test_late_return_charges_fee(self):
+        change_status(self.first, Booking.Status.RETURNED, actor=self.manager, today=d(6))
+        self.first.refresh_from_db()
+        self.assertEqual(self.first.late_days, 3)
+        self.assertEqual(self.first.late_fee, Decimal("2250.00"))  # 3 × 500 × 1,5
+        self.assertEqual(self.first.amount_due, Decimal("3250.00"))
+        self.assertIn("Запізнення 3 дн.", self.first.events.last().comment)
+
+    def test_cannot_issue_unit_that_was_not_returned(self):
+        with self.assertRaises(BookingError) as ctx:
+            change_status(self.next, Booking.Status.ISSUED, actor=self.manager, today=d(5))
+        self.assertIn(f"№ {self.first.pk}", str(ctx.exception))
+        self.assertNotIn("issued", allowed_transitions(self.next, self.manager, today=d(5)))
+
+        change_status(self.first, Booking.Status.RETURNED, actor=self.manager, today=d(5))
+        change_status(self.next, Booking.Status.ISSUED, actor=self.manager, today=d(5))
+        self.assertEqual(self.next.status, Booking.Status.ISSUED)
+
+    def test_manager_panel_shows_blocking_badge(self):
+        # Сценарій «сьогодні»: перша оренда прострочена, наступна мала початися сьогодні.
+        Booking.objects.filter(pk=self.first.pk).update(start_date=d(-5), end_date=d(-2))
+        Booking.objects.filter(pk=self.next.pk).update(start_date=TODAY, end_date=d(2))
+        self.client.force_login(self.manager)
+        response = self.client.get(reverse("manage:list"))
+        self.assertContains(response, "ще не повернули")
+        self.assertNotContains(response, reverse("manage:action", args=[self.next.pk, "issue"]))
+
+
+class AvailabilityCalendarTests(TestCase):
+    """Календар доступності на картці обладнання."""
+
+    def setUp(self):
+        from catalog.availability import build_month, day_states  # noqa: F401
+
+        self.etype, self.unit1, _, self.client_user, _, _ = make_fixture(turnaround_days=1)
+
+    def test_day_states(self):
+        from catalog.availability import day_states
+
+        booking = create_booking(client=self.client_user, unit=self.unit1, start=d(1), end=d(3))
+        states = day_states([booking], d(0), d(10))
+        self.assertEqual(states, {d(1): "busy", d(2): "busy", d(3): "buffer"})
+
+    def test_busy_wins_over_buffer(self):
+        from catalog.availability import day_states
+
+        self.etype.turnaround_days = 0
+        self.etype.save()
+        first = create_booking(client=self.client_user, unit=self.unit1, start=d(1), end=d(3))
+        first.buffer_days = 1  # перерва попередньої оренди збігається з початком наступної
+        second = create_booking(client=self.client_user, unit=self.unit1, start=d(3), end=d(4))
+        self.assertEqual(day_states([first, second], d(0), d(10))[d(3)], "busy")
+
+    def test_month_grid_marks_past_and_today(self):
+        from catalog.availability import build_month
+
+        month = build_month(TODAY.year, TODAY.month, [], TODAY)
+        days = [day for week in month.weeks for day in week if day]
+        today_cell = next(day for day in days if day.date == TODAY)
+        self.assertTrue(today_cell.is_today)
+        self.assertEqual(today_cell.state, "free")
+        self.assertTrue(all(day.state == "past" for day in days if day.date < TODAY))
+
+    def test_detail_page_renders_calendar_and_handles_bad_month(self):
+        create_booking(client=self.client_user, unit=self.unit1, start=d(1), end=d(3))
+        url = reverse("catalog:detail", args=[self.etype.pk])
+        response = self.client.get(url)
+        self.assertContains(response, 'class="calendar"')
+        self.assertContains(response, 'class="busy')
+        for bad in ("abc", "-5", "999"):
+            self.assertEqual(self.client.get(url, {"m": bad}).status_code, 200)
+
+
+class ManagerPaginationTests(TestCase):
+    def test_pagination(self):
+        from .manager_views import PAGE_SIZE
+
+        _, unit1, _, client_user, _, manager = make_fixture()
+        for i in range(PAGE_SIZE + 5):
+            create_booking(client=client_user, unit=unit1, start=d(1 + i * 2), end=d(2 + i * 2))
+        self.client.force_login(manager)
+        first = self.client.get(reverse("manage:list"))
+        self.assertEqual(len(first.context["bookings"]), PAGE_SIZE)
+        self.assertContains(first, "Сторінка 1 з 2")
+        second = self.client.get(reverse("manage:list"), {"page": 2})
+        self.assertEqual(len(second.context["bookings"]), 5)
+        self.assertEqual(self.client.get(reverse("manage:list"), {"page": "x"}).status_code, 200)

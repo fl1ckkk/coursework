@@ -47,6 +47,9 @@ catalog.0001_initial ──┼─▶ bookings.0001_initial ─▶ bookings.0002_
 catalog.0002_equipmenttype_turnaround_days ───────────────────────────────────────────────────────┤
                                                                                                   ▼
                                                                                   bookings.0005_booking_buffer_days
+                                                                                                  │
+                                                                                                  ▼
+                                                                                  bookings.0006_extension_and_late_return
 ```
 
 ## Перелік міграцій
@@ -61,6 +64,7 @@ catalog.0002_equipmenttype_turnaround_days ────────────�
 | `bookings.0003_booking_no_overlap` | Заборона перетину бронювань | [bookings_0003_booking_no_overlap.md](bookings_0003_booking_no_overlap.md) |
 | `bookings.0004_auto_confirm_bookings` | Автопідтвердження: прибрано статуси `pending` і `rejected`, перенесено дані, оновлено умову обмеження | [bookings_0004_auto_confirm_bookings.md](bookings_0004_auto_confirm_bookings.md) |
 | `bookings.0005_booking_buffer_days` | Знімок перерви в бронюванні; обмеження перетину з урахуванням перерви | [bookings_0005_booking_buffer_days.md](bookings_0005_booking_buffer_days.md) |
+| `bookings.0006_extension_and_late_return` | Фактична дата повернення, діб запізнення, доплата; подія «Продовжено» | [bookings_0006_extension_and_late_return.md](bookings_0006_extension_and_late_return.md) |
 
 Стандартні міграції Django (`auth`, `admin`, `contenttypes`, `sessions`)
 не описуються окремо: вони не є власною розробкою.

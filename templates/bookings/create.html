@@ -1,46 +1,60 @@
 {% extends "base.html" %}
 {% block title %}Бронювання — {{ item.name }}{% endblock %}
 {% block content %}
-<p><a href="{% url 'catalog:detail' item.pk %}">← {{ item.name }}</a></p>
-<h1>Бронювання: {{ item.name }}</h1>
+<a class="back" href="{% url 'catalog:detail' item.pk %}">← {{ item.name }}</a>
+<h1>Бронювання</h1>
 
 {% if not tariff %}
-  <p>Для цього обладнання ще не задано ціну, тому бронювання недоступне.</p>
+  <div class="card empty-state">Для цього обладнання ще не задано ціну, тому бронювання недоступне.</div>
 {% elif not form.fields.unit.queryset.exists %}
-  <p>Зараз немає доступних екземплярів.</p>
+  <div class="card empty-state">Зараз немає доступних екземплярів.</div>
 {% else %}
-  <p class="price">{{ tariff.price_per_day }} грн / доба</p>
+  <div class="two-col">
+    <form method="post" novalidate class="card">
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <ul class="errorlist nonfield">{% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}</ul>
+      {% endif %}
+      {% for field in form %}
+        <div class="form-row">
+          {{ field.label_tag }}
+          {{ field }}
+          {% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}
+          {{ field.errors }}
+        </div>
+      {% endfor %}
+      <button type="submit" class="btn btn-primary">Надіслати заявку</button>
+    </form>
 
-  <form method="post" novalidate>
-    {% csrf_token %}
-    {{ form.non_field_errors }}
-    {% for field in form %}
-      <div class="form-row">
-        {{ field.label_tag }}
-        {{ field }}
-        {% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}
-        {{ field.errors }}
-      </div>
-    {% endfor %}
-
-    <p id="estimate" class="muted" data-price="{{ tariff.price_per_day|stringformat:'s' }}"></p>
-    <button type="submit" class="primary">Надіслати заявку</button>
-  </form>
+    <aside class="card" aria-live="polite">
+      <h2 style="margin-top:0">{{ item.name }}</h2>
+      <div class="summary"><span>Ціна за добу</span><strong>{{ tariff.price_per_day }} грн</strong></div>
+      <div class="summary"><span>Діб</span><strong id="days">—</strong></div>
+      <div class="summary total"><span>Орієнтовна вартість</span><span id="estimate" data-price="{{ tariff.price_per_day|stringformat:'s' }}">—</span></div>
+      <p class="muted small" id="estimate-note" style="margin-top:.75rem">Остаточну вартість розраховує сервер під час створення заявки.</p>
+      <p class="small"><a href="{% url 'catalog:detail' item.pk %}">Переглянути календар доступності</a></p>
+    </aside>
+  </div>
 
   <script>
     // Попередній розрахунок для зручності. Остаточну вартість рахує сервер.
     (function () {
       const out = document.getElementById("estimate");
+      const daysOut = document.getElementById("days");
       const price = parseFloat(out.dataset.price);
       const start = document.getElementById("id_start_date");
       const end = document.getElementById("id_end_date");
 
       function update() {
-        if (!start.value || !end.value) { out.textContent = ""; return; }
+        if (!start.value || !end.value) { out.textContent = "—"; daysOut.textContent = "—"; return; }
         const days = Math.round((new Date(end.value) - new Date(start.value)) / 86400000);
-        out.textContent = days > 0
-          ? "Діб: " + days + ". Орієнтовна вартість: " + (days * price).toFixed(2) + " грн."
-          : "Дата повернення має бути пізніше за дату видачі.";
+        if (days > 0) {
+          daysOut.textContent = days;
+          out.textContent = (days * price).toFixed(2).replace(".", ",") + " грн";
+        } else {
+          daysOut.textContent = "—";
+          out.textContent = "повернення має бути пізніше видачі";
+        }
       }
 
       start.addEventListener("change", update);

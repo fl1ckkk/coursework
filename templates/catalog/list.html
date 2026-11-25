@@ -1,22 +1,53 @@
 {% extends "base.html" %}
+{% block title %}Каталог{% endblock %}
 {% block content %}
-<h1>Каталог обладнання</h1>
-<form method="get" role="search">
-  <label>Пошук <input type="search" name="q" value="{{ query }}"></label>
-  <label>Категорія
-    <select name="category">
-      <option value="">Усі</option>
+<div class="page-head">
+  <div>
+    <h1>Каталог обладнання</h1>
+    <p class="muted">Виберіть обладнання, подивіться календар доступності й забронюйте потрібний екземпляр.</p>
+  </div>
+</div>
+
+<form method="get" role="search" class="toolbar card">
+  <div class="field">
+    <label for="q">Пошук</label>
+    <input type="search" id="q" name="q" value="{{ query }}" placeholder="Назва або опис">
+  </div>
+  <div class="field">
+    <label for="category">Категорія</label>
+    <select id="category" name="category">
+      <option value="">Усі категорії</option>
       {% for c in categories %}<option value="{{ c }}" {% if c == category %}selected{% endif %}>{{ c }}</option>{% endfor %}
     </select>
-  </label>
-  <button type="submit">Знайти</button>
-</form>
-{% for item in items %}
-  <div class="card">
-    <a href="{% url 'catalog:detail' item.pk %}"><strong>{{ item.name }}</strong></a>
-    <div class="muted">{{ item.category }}</div>
   </div>
-{% empty %}
-  <p>За вашим запитом нічого не знайдено.</p>
-{% endfor %}
+  <div class="actions-inline">
+    <button type="submit" class="btn btn-primary">Знайти</button>
+    {% if query or category %}<a class="btn" href="{% url 'catalog:list' %}">Скинути</a>{% endif %}
+  </div>
+</form>
+
+{% if items %}
+  <div class="grid">
+    {% for item in items %}
+      <article class="card item-card">
+        <span class="chip">{{ item.category }}</span>
+        <h3><a href="{% url 'catalog:detail' item.pk %}">{{ item.name }}</a></h3>
+        <p class="desc">{{ item.description|truncatewords:18 }}</p>
+        <div class="foot">
+          {% if item.price %}
+            <span class="price">{{ item.price }} грн <small>/ доба</small></span>
+          {% else %}
+            <span class="muted small">Ціну ще не задано</span>
+          {% endif %}
+          <span class="muted small">Екземплярів: {{ item.units_available }}</span>
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="card empty-state">
+    <p><strong>За вашим запитом нічого не знайдено.</strong></p>
+    <p>Спробуйте змінити пошук або <a href="{% url 'catalog:list' %}">переглянути весь каталог</a>.</p>
+  </div>
+{% endif %}
 {% endblock %}

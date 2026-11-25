@@ -1,43 +1,69 @@
 {% extends "base.html" %}
 {% block title %}Заявки{% endblock %}
 {% block content %}
-<h1>Заявки</h1>
+<div class="page-head">
+  <div>
+    <h1>Заявки</h1>
+    <p class="muted">Видача, повернення та скасування бронювань.</p>
+  </div>
+</div>
 
-<form method="get" class="filters">
+<form method="get" class="toolbar card" role="search">
   <input type="hidden" name="tab" value="{{ tab }}">
-  <label>Клієнт, інв. номер або обладнання
-    <input type="search" name="q" value="{{ query }}">
-  </label>
-  <label>Період з <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}"></label>
-  <label>по <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}"></label>
-  <button type="submit">Знайти</button>
-  {% if query or date_from or date_to %}<a href="?tab={{ tab }}">Скинути</a>{% endif %}
+  <div class="field" style="flex:2">
+    <label for="q">Клієнт, інв. номер або обладнання</label>
+    <input type="search" id="q" name="q" value="{{ query }}">
+  </div>
+  <div class="field">
+    <label for="from">Період з</label>
+    <input type="date" id="from" name="from" value="{{ date_from|date:'Y-m-d' }}">
+  </div>
+  <div class="field">
+    <label for="to">по</label>
+    <input type="date" id="to" name="to" value="{{ date_to|date:'Y-m-d' }}">
+  </div>
+  <div class="actions-inline">
+    <button type="submit" class="btn btn-primary">Знайти</button>
+    {% if query or date_from or date_to %}<a class="btn" href="?tab={{ tab }}">Скинути</a>{% endif %}
+  </div>
 </form>
 
-<nav class="tabs">
+<nav class="tabs" aria-label="Стан заявок">
   {% for key, label, count in tabs %}
-    <a href="?tab={{ key }}{% if filters %}&amp;{{ filters }}{% endif %}" {% if key == tab %}class="current"{% endif %}>
+    <a href="?tab={{ key }}{% if filters %}&amp;{{ filters }}{% endif %}" {% if key == tab %}aria-current="page"{% endif %}>
       {{ label }} <span class="count">({{ count }})</span>
     </a>
   {% endfor %}
 </nav>
 
 {% if bookings %}
-  <table class="data">
-    <tr><th>№</th><th>Клієнт</th><th>Обладнання</th><th>Період</th><th>Вартість</th><th>Статус</th><th>Дії</th></tr>
-    {% for b in bookings %}
-      <tr>
-        <td><a href="{% url 'bookings:detail' b.pk %}">{{ b.pk }}</a></td>
-        <td>{{ b.client }}{% if b.client.phone %}<br><span class="muted">{{ b.client.phone }}</span>{% endif %}</td>
-        <td>{{ b.unit.equipment_type }}<br><span class="muted">Інв. № {{ b.unit.inventory_number }}</span></td>
-        <td>{{ b.start_date|date:"d.m.Y" }} — {{ b.end_date|date:"d.m.Y" }}</td>
-        <td>{{ b.total_price }} грн</td>
-        <td>{{ b.get_status_display }} {% include "bookings/includes/status_badges.html" with booking=b %}</td>
-        <td>{% include "bookings/includes/manager_actions.html" with booking=b next=request.get_full_path %}</td>
-      </tr>
-    {% endfor %}
-  </table>
+  <div class="table-wrap">
+    <table class="data responsive">
+      <thead><tr><th>№</th><th>Клієнт</th><th>Обладнання</th><th>Період</th><th>Сума</th><th>Статус</th><th>Дії</th></tr></thead>
+      <tbody>
+        {% for b in bookings %}
+          <tr>
+            <td data-label="Заявка" class="nowrap"><a href="{% url 'bookings:detail' b.pk %}">№ {{ b.pk }}</a></td>
+            <td data-label="Клієнт">{{ b.client }}{% if b.client.phone %}<span class="sub">{{ b.client.phone }}</span>{% endif %}</td>
+            <td data-label="Обладнання">{{ b.unit.equipment_type }}<span class="sub">Інв. № {{ b.unit.inventory_number }}</span></td>
+            <td data-label="Період" class="nowrap">{{ b.start_date|date:"d.m.Y" }} — {{ b.end_date|date:"d.m.Y" }}</td>
+            <td data-label="Сума" class="nowrap">{{ b.amount_due }} грн{% if b.late_fee %}<span class="sub">з них доплата {{ b.late_fee }} грн</span>{% endif %}</td>
+            <td data-label="Статус">{% include "bookings/includes/status.html" with booking=b %}<br>{% include "bookings/includes/status_badges.html" with booking=b %}</td>
+            <td data-label="Дії">{% include "bookings/includes/manager_actions.html" with booking=b next=request.get_full_path %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if page.has_other_pages %}
+    <nav class="pagination" aria-label="Сторінки">
+      {% if page.has_previous %}<a class="btn btn-sm" href="?{{ page_query }}&amp;page={{ page.previous_page_number }}">← Попередня</a>{% endif %}
+      <span class="muted small">Сторінка {{ page.number }} з {{ page.paginator.num_pages }}</span>
+      {% if page.has_next %}<a class="btn btn-sm" href="?{{ page_query }}&amp;page={{ page.next_page_number }}">Наступна →</a>{% endif %}
+    </nav>
+  {% endif %}
 {% else %}
-  <p>Заявок не знайдено.</p>
+  <div class="card empty-state">Заявок не знайдено.</div>
 {% endif %}
 {% endblock %}

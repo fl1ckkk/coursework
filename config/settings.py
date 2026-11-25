@@ -38,6 +38,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Віддає CSS і зображення й без режиму налагодження (наприклад, під Waitress).
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -92,6 +94,9 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [BASE_DIR / "static"]
+# Файли беруться прямо з static/, тож collectstatic для локального запуску не потрібен.
+WHITENOISE_USE_FINDERS = True
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

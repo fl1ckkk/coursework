@@ -3,21 +3,24 @@
   {% if "issued" in booking.allowed %}
     <form method="post" action="{% url 'manage:action' booking.pk 'issue' %}">
       {% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
-      <button type="submit" class="secondary">Видати</button>
+      <button type="submit" class="btn btn-primary btn-sm">Видати</button>
     </form>
+  {% elif booking.blocking %}
+    <span class="small muted">Видача неможлива: екземпляр ще за заявкою
+      <a href="{% url 'bookings:detail' booking.blocking.pk %}">№ {{ booking.blocking.pk }}</a></span>
   {% endif %}
   {% if "returned" in booking.allowed %}
     <form method="post" action="{% url 'manage:action' booking.pk 'return' %}">
       {% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
-      <button type="submit" class="secondary">Прийняти повернення</button>
+      <button type="submit" class="btn btn-primary btn-sm">Прийняти повернення</button>
     </form>
   {% endif %}
   {% if "cancelled" in booking.allowed %}
     <form method="post" action="{% url 'manage:action' booking.pk 'cancel' %}"
           onsubmit="return confirm('Скасувати заявку № {{ booking.pk }}?');">
       {% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
-      <input type="text" name="comment" placeholder="Причина скасування" required maxlength="255">
-      <button type="submit" class="danger">Скасувати</button>
+      <input type="text" name="comment" placeholder="Причина скасування" aria-label="Причина скасування" required maxlength="255">
+      <button type="submit" class="btn btn-danger btn-sm">Скасувати</button>
     </form>
   {% endif %}
 </div>
